@@ -52,9 +52,11 @@ class GazeToScreenModel:
                 calibration_data = json.load(f)
         except FileNotFoundError:
             print(f"Error: Calibration data file not found: {calibration_data_file}")
+            self.is_trained = False
             return False
         except json.JSONDecodeError:
             print(f"Error: Could not decode JSON from {calibration_data_file}")
+            self.is_trained = False
             return False
 
         raw_gaze_coords = []
@@ -64,39 +66,96 @@ class GazeToScreenModel:
         head_tvecs_list = []
 
         valid_entries = 0
-        for entry in calibration_data:
-            raw_gaze = entry.get("raw_gaze_camera_px")
-            pupil_coord = entry.get("avg_normalized_pupil_coord_xy")
-            rvec = entry.get("avg_head_pose_rvec")
-            tvec = entry.get("avg_head_pose_tvec")
-            target_px = entry.get("target_screen_px")
+        # Define thresholds for outlier detection
+        MAX_RVEC_COMPONENT_ABS = 10.0  # Max absolute value for any rvec component (radians)
+        MAX_TVEC_XY_COMPONENT_ABS = 1500.0 # Max absolute value for tvec x, y components (e.g., mm)
+        MIN_TVEC_Z_COMPONENT = 100.0    # Min value for tvec z component (e.g., mm, >0)
+        MAX_TVEC_Z_COMPONENT = 4000.0   # Max value for tvec z component (e.g., mm)
 
-            if (raw_gaze and raw_gaze[0] is not None and raw_gaze[1] is not None and
-                pupil_coord and pupil_coord[0] is not None and pupil_coord[1] is not None and
-                rvec and len(rvec) == 3 and all(v is not None for v in rvec) and
-                tvec and len(tvec) == 3 and all(v is not None for v in tvec) and
-                target_px and target_px[0] is not None and target_px[1] is not None and
-                entry.get("samples", 0) > 0):
-                
-                raw_gaze_coords.append(raw_gaze)
-                pupil_coords_list.append(pupil_coord)
-                head_rvecs_list.append(rvec)
-                head_tvecs_list.append(tvec)
-                target_screen_coords.append(target_px)
+        # Helper to check list of numbers for structure, type, and NaN/Inf
+        def _validate_list_of_numbers(data, expected_len, name_for_error):
+            if not (isinstance(data, list) and len(data) == expected_len and
+                    all(isinstance(v, (int, float)) for v in data)):
+                return False, None, f"Invalid structure/type for {name_for_error}: {data}"
+            # Check for NaN or Inf after ensuring they are numbers
+            if any(np.isnan(v) or np.isinf(v) for v in data):
+                return False, None, f"Invalid numeric value (NaN/Inf) in {name_for_error}: {data}"
+            return True, data, None
+
+        for entry_idx, entry in enumerate(calibration_data):
+            is_entry_valid = True
+            error_messages = []
+            
+            # Validate all required fields
+            valid_struct, raw_gaze_val, err_msg = _validate_list_of_numbers(entry.get("raw_gaze_camera_px"), 2, "raw_gaze_camera_px")
+            if not valid_struct: is_entry_valid = False; error_messages.append(err_msg)
+
+            valid_struct, pupil_coord_val, err_msg = _validate_list_of_numbers(entry.get("avg_normalized_pupil_coord_xy"), 2, "avg_normalized_pupil_coord_xy")
+            if not valid_struct: is_entry_valid = False; error_messages.append(err_msg)
+
+            valid_struct, rvec_val, err_msg = _validate_list_of_numbers(entry.get("avg_head_pose_rvec"), 3, "avg_head_pose_rvec")
+            if not valid_struct: is_entry_valid = False; error_messages.append(err_msg)
+
+            valid_struct, tvec_val, err_msg = _validate_list_of_numbers(entry.get("avg_head_pose_tvec"), 3, "avg_head_pose_tvec")
+            if not valid_struct: is_entry_valid = False; error_messages.append(err_msg)
+            
+            valid_struct, target_px_val, err_msg = _validate_list_of_numbers(entry.get("target_screen_px"), 2, "target_screen_px")
+            if not valid_struct: is_entry_valid = False; error_messages.append(err_msg)
+
+            samples = entry.get("samples")
+            if not (isinstance(samples, int) and samples > 0):
+                is_entry_valid = False; error_messages.append(f"Invalid samples: {samples}")
+
+            # Outlier checks if data structure and types are valid so far
+            if is_entry_valid:
+                if any(abs(val) > MAX_RVEC_COMPONENT_ABS for val in rvec_val):
+                    error_messages.append(f"Outlier in rvec values: {rvec_val}")
+                    is_entry_valid = False
+            
+                if is_entry_valid and (abs(tvec_val[0]) > MAX_TVEC_XY_COMPONENT_ABS or
+                                       abs(tvec_val[1]) > MAX_TVEC_XY_COMPONENT_ABS or
+                                       not (MIN_TVEC_Z_COMPONENT <= tvec_val[2] <= MAX_TVEC_Z_COMPONENT)):
+                    error_messages.append(f"Outlier in tvec values: {tvec_val}")
+                    is_entry_valid = False
+            
+            if is_entry_valid:
+                raw_gaze_coords.append(raw_gaze_val)
+                pupil_coords_list.append(pupil_coord_val)
+                head_rvecs_list.append(rvec_val)
+                head_tvecs_list.append(tvec_val)
+                target_screen_coords.append(target_px_val)
                 valid_entries += 1
             else:
-                print(f"Skipping invalid or incomplete entry: {entry}")
+                print(f"Skipping entry #{entry_idx} due to: {'; '.join(error_messages)}. Entry data: {entry}")
 
-        if valid_entries < 2:
-            print(f"Error: Not enough valid data points ({valid_entries}) in calibration data to train the model. Need at least 2.")
+        # For PolynomialFeatures(degree=2, include_bias=False) with 10 input features,
+        # the number of output polynomial features is 65.
+        n_poly_features = 65 
+        min_samples_needed = n_poly_features + 1 # For LinearRegression
+
+        if valid_entries < min_samples_needed:
+            print(f"Error: Not enough valid data points ({valid_entries}) after filtering. "
+                  f"Need at least {min_samples_needed} for the current model configuration (10 base features, degree 2 polynomial).")
+            self.is_trained = False
             return False
 
-        gaze_points = np.array(raw_gaze_coords)
-        screen_points = np.array(target_screen_coords)
-        pupil_points = np.array(pupil_coords_list)
-        rvec_points = np.array(head_rvecs_list)
-        tvec_points = np.array(head_tvecs_list)
+        gaze_points = np.array(raw_gaze_coords, dtype=float)
+        screen_points = np.array(target_screen_coords, dtype=float)
+        pupil_points = np.array(pupil_coords_list, dtype=float)
+        rvec_points = np.array(head_rvecs_list, dtype=float)
+        tvec_points = np.array(head_tvecs_list, dtype=float)
 
+        # Final check for NaNs/Infs in the numpy arrays
+        feature_arrays_map = {
+            "gaze_points": gaze_points, "pupil_points": pupil_points,
+            "rvec_points": rvec_points, "tvec_points": tvec_points
+        }
+        for name, arr in feature_arrays_map.items():
+            if np.isnan(arr).any() or np.isinf(arr).any():
+                print(f"Error: NaN or Inf detected in '{name}' array after processing. Training aborted.")
+                self.is_trained = False
+                return False
+        
         all_features = np.concatenate((gaze_points, pupil_points, rvec_points, tvec_points), axis=1)
         self._expected_feature_count = all_features.shape[1]
 
