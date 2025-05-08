@@ -4,17 +4,17 @@ import time
 import vision.eyes as eyes
 import vision.gaze as gaze
 from evaluation.neural_network import GazeToScreenModel
+import os
+import re
 
 # --- Configuration ---
-# These should match the parameters used for your GazeToScreenModel
-# and camera setup.
 SCREEN_WIDTH = 1920  # Your screen resolution
 SCREEN_HEIGHT = 1080 # Your screen resolution
 CAMERA_WIDTH = 640   # Width of the camera frame used by the model
 CAMERA_HEIGHT = 480  # Height of the camera frame used by the model
 
 # Mouse movement smoothing factor (0.0 to 1.0). Higher values mean smoother but slower.
-SMOOTHING_FACTOR = 0.7 # Adjust as needed
+SMOOTHING_FACTOR = 0.95 # Adjust as needed
 previous_mouse_x, previous_mouse_y = pyautogui.position()
 
 def main_realtime_gaze_mouse():
@@ -40,18 +40,13 @@ def main_realtime_gaze_mouse():
     )
     # Attempt to train the model if it's not already trained
     if not model.is_trained:
-        print("Model is not trained. Attempting to train with 'data/training/calibration_data.json'...")
-        if model.train("data/training/calibration_data.json"): # Corrected path
+        print("Model is not trained. Attempting to train...")
+        if model.train("data/training/training-data-0336.json"): # Corrected path
             print("Model training successful.")
         else:
             print("Model training failed. Predictions will use simple scaling (handled by main.py).")
-            print("Run calibration.py to generate 'calibration_data.json' if it's missing or invalid.")
             print("INFO: Reverting to simple gaze tracking due to model training failure.") # Added notification
             # model.is_trained remains False
-
-    print("Gaze-to-screen model initialized.")
-    print("Real-time gaze mouse control starting. Press 'q' to quit.")
-    print("Ensure the GazeToScreenModel is appropriately trained/configured for accurate results.")
 
     # PyAutoGUI setup
     pyautogui.FAILSAFE = False # Be cautious: disables the failsafe (moving mouse to corner to stop)
@@ -170,9 +165,4 @@ def main_realtime_gaze_mouse():
         print("Webcam released and windows closed.")
 
 if __name__ == "__main__":
-    print("Starting main.py for real-time gaze mouse control.")
-    print("Important: If the mouse moves erratically, you can quickly move your mouse")
-    print("to a corner of the screen to trigger PyAutoGUI's failsafe (if not disabled).")
-    print("Press 'q' in the OpenCV window to quit the application.")
-    # time.sleep(2) # Give user a moment to read instructions
     main_realtime_gaze_mouse()

@@ -138,11 +138,6 @@ class GazeToScreenModel:
         head_tvecs_list = []
 
         valid_entries = 0
-        # Define thresholds for outlier detection
-        # MAX_RVEC_COMPONENT_ABS = 10.0  # Max absolute value for any rvec component (radians)
-        # MAX_TVEC_XY_COMPONENT_ABS = 1500.0 # Max absolute value for tvec x, y components (e.g., mm)
-        # MIN_TVEC_Z_COMPONENT = 100.0    # Min value for tvec z component (e.g., mm, >0)
-        # MAX_TVEC_Z_COMPONENT = 4000.0   # Max value for tvec z component (e.g., mm)
 
         # Helper to check list of numbers for structure, type, and NaN/Inf
         def _validate_list_of_numbers(data, expected_len, name_for_error):
@@ -162,34 +157,27 @@ class GazeToScreenModel:
             valid_struct, raw_gaze_val, err_msg = _validate_list_of_numbers(entry.get("raw_gaze_camera_px"), 2, "raw_gaze_camera_px")
             if not valid_struct: is_entry_valid = False; error_messages.append(err_msg)
 
-            valid_struct, pupil_coord_val, err_msg = _validate_list_of_numbers(entry.get("avg_normalized_pupil_coord_xy"), 2, "avg_normalized_pupil_coord_xy")
+            pupil_coord_data = entry.get("normalized_pupil_coord_xy")
+            if pupil_coord_data is None: # Try old key if new one isn't found
+                pupil_coord_data = entry.get("avg_normalized_pupil_coord_xy")
+            valid_struct, pupil_coord_val, err_msg = _validate_list_of_numbers(pupil_coord_data, 2, "normalized_pupil_coord_xy or avg_normalized_pupil_coord_xy")
             if not valid_struct: is_entry_valid = False; error_messages.append(err_msg)
 
-            valid_struct, rvec_val, err_msg = _validate_list_of_numbers(entry.get("avg_head_pose_rvec"), 3, "avg_head_pose_rvec")
+            rvec_data = entry.get("head_pose_rvec")
+            if rvec_data is None: # Try old key
+                rvec_data = entry.get("avg_head_pose_rvec")
+            valid_struct, rvec_val, err_msg = _validate_list_of_numbers(rvec_data, 3, "head_pose_rvec or avg_head_pose_rvec")
             if not valid_struct: is_entry_valid = False; error_messages.append(err_msg)
 
-            valid_struct, tvec_val, err_msg = _validate_list_of_numbers(entry.get("avg_head_pose_tvec"), 3, "avg_head_pose_tvec")
+            tvec_data = entry.get("head_pose_tvec")
+            if tvec_data is None: # Try old key
+                tvec_data = entry.get("avg_head_pose_tvec")
+            valid_struct, tvec_val, err_msg = _validate_list_of_numbers(tvec_data, 3, "head_pose_tvec or avg_head_pose_tvec")
             if not valid_struct: is_entry_valid = False; error_messages.append(err_msg)
             
             valid_struct, target_px_val, err_msg = _validate_list_of_numbers(entry.get("target_screen_px"), 2, "target_screen_px")
             if not valid_struct: is_entry_valid = False; error_messages.append(err_msg)
 
-            samples = entry.get("samples")
-            if not (isinstance(samples, int) and samples > 0):
-                is_entry_valid = False; error_messages.append(f"Invalid samples: {samples}")
-
-            # Outlier checks if data structure and types are valid so far
-            # if is_entry_valid:
-                # if any(abs(val) > MAX_RVEC_COMPONENT_ABS for val in rvec_val):
-                #     error_messages.append(f"Outlier in rvec values: {rvec_val}")
-                #     is_entry_valid = False
-            
-                # if is_entry_valid and (abs(tvec_val[0]) > MAX_TVEC_XY_COMPONENT_ABS or
-                #                        abs(tvec_val[1]) > MAX_TVEC_XY_COMPONENT_ABS or
-                #                        not (MIN_TVEC_Z_COMPONENT <= tvec_val[2] <= MAX_TVEC_Z_COMPONENT)):
-                #     error_messages.append(f"Outlier in tvec values: {tvec_val}")
-                #     is_entry_valid = False
-            
             if is_entry_valid:
                 raw_gaze_coords.append(raw_gaze_val)
                 pupil_coords_list.append(pupil_coord_val)
@@ -432,25 +420,24 @@ if __name__ == "__main__":
     
     dummy_calibration_file = "dummy_calibration_data.json"
     dummy_data = [
-        {"target_screen_px": [100, 100], "raw_gaze_camera_px": [50, 50], "samples": 1,
-         "avg_normalized_pupil_coord_xy": [0.5, 0.5], "avg_head_pose_rvec": [0.1, 0.1, 0.1], "avg_head_pose_tvec": [1, 1, -10]},
-        {"target_screen_px": [1800, 100], "raw_gaze_camera_px": [600, 50], "samples": 1,
-         "avg_normalized_pupil_coord_xy": [0.5, 0.5], "avg_head_pose_rvec": [-0.1, 0.1, 0.1], "avg_head_pose_tvec": [-1, 1, -10]},
-        {"target_screen_px": [100, 1000], "raw_gaze_camera_px": [50, 450], "samples": 1,
-         "avg_normalized_pupil_coord_xy": [0.5, 0.5], "avg_head_pose_rvec": [0.1, -0.1, 0.1], "avg_head_pose_tvec": [1, -1, -10]},
-        {"target_screen_px": [1800, 1000], "raw_gaze_camera_px": [600, 450], "samples": 1,
-         "avg_normalized_pupil_coord_xy": [0.5, 0.5], "avg_head_pose_rvec": [0.0, 0.0, 0.0], "avg_head_pose_tvec": [0, 0, -12]},
-        {"target_screen_px": [960, 540], "raw_gaze_camera_px": [320, 240], "samples": 1,
-         "avg_normalized_pupil_coord_xy": [0.5, 0.5], "avg_head_pose_rvec": [0.2, 0.1, -0.1], "avg_head_pose_tvec": [0.5, -0.5, -11]}
+        {"target_screen_px": [100, 100], "raw_gaze_camera_px": [50, 50], 
+         "normalized_pupil_coord_xy": [0.5, 0.5], "head_pose_rvec": [0.1, 0.1, 0.1], "head_pose_tvec": [1, 1, -10]},
+        {"target_screen_px": [1800, 100], "raw_gaze_camera_px": [600, 50], 
+         "normalized_pupil_coord_xy": [0.5, 0.5], "head_pose_rvec": [-0.1, 0.1, 0.1], "head_pose_tvec": [-1, 1, -10]},
+        {"target_screen_px": [100, 1000], "raw_gaze_camera_px": [50, 450], 
+         "normalized_pupil_coord_xy": [0.5, 0.5], "head_pose_rvec": [0.1, -0.1, 0.1], "head_pose_tvec": [1, -1, -10]},
+        {"target_screen_px": [1800, 1000], "raw_gaze_camera_px": [600, 450], 
+         "normalized_pupil_coord_xy": [0.5, 0.5], "head_pose_rvec": [0.0, 0.0, 0.0], "head_pose_tvec": [0, 0, -12]},
+        {"target_screen_px": [960, 540], "raw_gaze_camera_px": [320, 240], 
+         "normalized_pupil_coord_xy": [0.5, 0.5], "head_pose_rvec": [0.2, 0.1, -0.1], "head_pose_tvec": [0.5, -0.5, -11]}
     ]
-    for i in range(10):
+    for i in range(10): # Generate enough samples to pass the min_samples_needed check
         dummy_data.append({
             "target_screen_px": [np.random.randint(0, SCREEN_WIDTH), np.random.randint(0, SCREEN_HEIGHT)],
             "raw_gaze_camera_px": [np.random.randint(0, CAMERA_WIDTH), np.random.randint(0, CAMERA_HEIGHT)],
-            "samples": 1,
-            "avg_normalized_pupil_coord_xy": [np.random.rand(), np.random.rand()],
-            "avg_head_pose_rvec": (np.random.rand(3) * 0.4 - 0.2).tolist(),
-            "avg_head_pose_tvec": (np.array([np.random.uniform(-5,5), np.random.uniform(-5,5), np.random.uniform(-20,-5)])).tolist()
+            "normalized_pupil_coord_xy": [np.random.rand(), np.random.rand()],
+            "head_pose_rvec": (np.random.rand(3) * 0.4 - 0.2).tolist(),
+            "head_pose_tvec": (np.array([np.random.uniform(-5,5), np.random.uniform(-5,5), np.random.uniform(-20,-5)])).tolist()
         })
 
     with open(dummy_calibration_file, 'w') as f:

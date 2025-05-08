@@ -133,13 +133,6 @@ def main_calibration_procedure():
                 return
 
         # Capture gaze data for this point
-        point_gaze_data_x = []
-        point_gaze_data_y = []
-        point_pupil_norm_x = []
-        point_pupil_norm_y = []
-        point_head_rvecs = []
-        point_head_tvecs = []
-        
         capturing_screen = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH, 3), dtype=np.uint8) # Fresh black screen
         display_calibration_point(capturing_screen, target_x, target_y) # Show the point
         # Change dot to green to indicate capture is active
@@ -150,11 +143,11 @@ def main_calibration_procedure():
         cv2.waitKey(1) # Ensure it displays
 
         start_capture_time = time.time()
-        samples_collected = 0
+        samples_collected_for_this_point = 0 # Renamed and used for SAMPLES_PER_POINT limit for current point
         no_face_consecutive_frames = 0  # Counter for consecutive frames with no face detected
         MAX_CONSECUTIVE_NO_FACE_FRAMES = 45 # Approx 1.5 seconds if FPS is around 30
 
-        while time.time() - start_capture_time < CAPTURE_DURATION_SEC and samples_collected < SAMPLES_PER_POINT:
+        while time.time() - start_capture_time < CAPTURE_DURATION_SEC and samples_collected_for_this_point < SAMPLES_PER_POINT:
             ret, frame = cap.read()
             if not ret:
                 print("Error: Could not read frame from webcam.")
@@ -199,34 +192,39 @@ def main_calibration_procedure():
                 warning_messages.append("WARN: Gaze features not found")
             else:
                 raw_iris_pixels = gaze_features.get('raw_iris_pixels')
-                avg_pupil_norm = gaze_features.get('avg_pupil_normalized')
+                avg_pupil_norm = gaze_features.get('avg_pupil_normalized') # This is instantaneous pupil
                 head_rvec = gaze_features.get('head_pose_rvec')
                 head_tvec = gaze_features.get('head_pose_tvec')
 
+                all_data_valid_for_sample = True
                 if raw_iris_pixels is None:
-                    warning_messages.append("WARN: Iris pixels not detected")
+                    warning_messages.append("WARN: Iris pixels not detected for this sample")
+                    all_data_valid_for_sample = False
                 else:
-                    cv2.circle(frame, raw_iris_pixels, 5, (0, 0, 255), -1)
-                    point_gaze_data_x.append(raw_iris_pixels[0])
-                    point_gaze_data_y.append(raw_iris_pixels[1])
-                    samples_collected += 1 # Count sample only if raw gaze is good
+                    cv2.circle(frame, raw_iris_pixels, 5, (0, 0, 255), -1) # Visualize
 
                 if avg_pupil_norm is None:
-                    warning_messages.append("WARN: Pupil norm not detected")
-                else:
-                    point_pupil_norm_x.append(avg_pupil_norm[0])
-                    point_pupil_norm_y.append(avg_pupil_norm[1])
+                    warning_messages.append("WARN: Pupil norm not detected for this sample")
+                    all_data_valid_for_sample = False
                 
                 if head_rvec is None:
-                    warning_messages.append("WARN: Head rotation (rvec) not detected")
-                else:
-                    point_head_rvecs.append(head_rvec.flatten().tolist())
+                    warning_messages.append("WARN: Head rotation (rvec) not detected for this sample")
+                    all_data_valid_for_sample = False
                 
                 if head_tvec is None:
-                    warning_messages.append("WARN: Head translation (tvec) not detected")
-                else:
-                    point_head_tvecs.append(head_tvec.flatten().tolist())
+                    warning_messages.append("WARN: Head translation (tvec) not detected for this sample")
+                    all_data_valid_for_sample = False
 
+                if all_data_valid_for_sample:
+                    calibration_data.append({
+                        "target_screen_px": (target_x, target_y),
+                        "raw_gaze_camera_px": (float(raw_iris_pixels[0]), float(raw_iris_pixels[1])),
+                        "normalized_pupil_coord_xy": (float(avg_pupil_norm[0]), float(avg_pupil_norm[1])),
+                        "head_pose_rvec": head_rvec.flatten().tolist(),
+                        "head_pose_tvec": head_tvec.flatten().tolist()
+                    })
+                    samples_collected_for_this_point += 1
+            
             # Display warning messages on the calibration screen
             # Add prominent warning if no face is detected for too long
             if no_face_consecutive_frames > MAX_CONSECUTIVE_NO_FACE_FRAMES:
@@ -254,59 +252,7 @@ def main_calibration_procedure():
                 cv2.destroyAllWindows()
                 return
 
-        avg_gaze_x, avg_gaze_y = None, None
-        num_raw_gaze_samples = 0
-        if point_gaze_data_x and point_gaze_data_y:
-            if len(point_gaze_data_x) > 0: # Ensure not empty before mean
-                avg_gaze_x = np.mean(point_gaze_data_x)
-                avg_gaze_y = np.mean(point_gaze_data_y)
-                num_raw_gaze_samples = len(point_gaze_data_x)
-                print(f"Collected {num_raw_gaze_samples} raw gaze samples. Avg Raw Gaze: ({avg_gaze_x:.2f}, {avg_gaze_y:.2f})")
-            else:
-                print("Empty raw gaze data lists collected for this point.")
-        else:
-            print("No raw gaze data lists (point_gaze_data_x or point_gaze_data_y) found for this point.")
-
-        avg_pupil_norm_coord_xy = None
-        if point_pupil_norm_x and point_pupil_norm_y:
-            if len(point_pupil_norm_x) > 0 and len(point_pupil_norm_x) == len(point_pupil_norm_y):
-                avg_pupil_norm_coord_xy = (np.mean(point_pupil_norm_x), np.mean(point_pupil_norm_y))
-                print(f"Avg Normalized Pupil: ({avg_pupil_norm_coord_xy[0]:.2f}, {avg_pupil_norm_coord_xy[1]:.2f})")
-            elif len(point_pupil_norm_x) == 0:
-                print("Empty normalized pupil data lists collected for this point.")
-            else: # Mismatch length or one list empty
-                print(f"Warning: Mismatch or empty lists for normalized pupil data. X_samples: {len(point_pupil_norm_x)}, Y_samples: {len(point_pupil_norm_y)}.")
-        else:
-            print("No normalized pupil data lists (point_pupil_norm_x or point_pupil_norm_y) found for this point.")
-
-        avg_rvec_list = None
-        if point_head_rvecs:
-            if len(point_head_rvecs) > 0:
-                avg_rvec_list = np.mean(np.array(point_head_rvecs), axis=0).tolist()
-                print(f"Avg Head Rvec: {avg_rvec_list}")
-            else:
-                print("Empty head rotation vector data list collected for this point.")
-        else:
-            print("No head rotation vector data list (point_head_rvecs) found for this point.")
-
-        avg_tvec_list = None
-        if point_head_tvecs:
-            if len(point_head_tvecs) > 0:
-                avg_tvec_list = np.mean(np.array(point_head_tvecs), axis=0).tolist()
-                print(f"Avg Head Tvec: {avg_tvec_list}")
-            else:
-                print("Empty head translation vector data list collected for this point.")
-        else:
-            print("No head translation vector data list (point_head_tvecs) found for this point.")
-
-        calibration_data.append({
-            "target_screen_px": (target_x, target_y),
-            "raw_gaze_camera_px": (float(avg_gaze_x), float(avg_gaze_y)) if avg_gaze_x is not None else (None, None),
-            "avg_normalized_pupil_coord_xy": avg_pupil_norm_coord_xy,
-            "avg_head_pose_rvec": avg_rvec_list,
-            "avg_head_pose_tvec": avg_tvec_list,
-            "samples": num_raw_gaze_samples # Preserves the original meaning of 'samples'
-        })
+        print(f"Collected {samples_collected_for_this_point} valid data entries for point ({target_x}, {target_y}).")
         
         # Brief pause or message before next point
         inter_point_screen = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH, 3), dtype=np.uint8) # Fresh black screen
@@ -324,7 +270,7 @@ def main_calibration_procedure():
         with open(OUTPUT_FILE, 'w') as f:
             json.dump(calibration_data, f, indent=4)
         print(f"\nCalibration complete. Data saved to {OUTPUT_FILE}")
-        print(f"Total data points collected: {len(calibration_data)}")
+        print(f"Total individual data samples collected: {len(calibration_data)}")
         print("This data can now be used to train or refine the GazeToScreenModel.")
     else:
         print("\nCalibration finished, but no data was collected.")

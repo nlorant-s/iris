@@ -13,8 +13,8 @@ SCREEN_WIDTH = 1920  # Your screen resolution
 SCREEN_HEIGHT = 1080 # Your screen resolution
 CAMERA_WIDTH = 640   # Width of the camera frame used by the model
 CAMERA_HEIGHT = 480  # Height of the camera frame used by the model
-CALIBRATION_DATA_FILE = os.path.normpath(os.path.join(_SCRIPT_DIR, "..", "data", "training", "training-data-0251.json")) # Modified for robustness
-MODEL_FILE_PATH = os.path.normpath(os.path.join(_SCRIPT_DIR, "..", "data", "models", "gaze_model1.joblib")) # Modified for robustness # Default path for the trained model
+CALIBRATION_DATA_FILE = os.path.normpath(os.path.join(_SCRIPT_DIR, "..", "data", "training", "training-data-0336.json")) # Modified for robustness
+MODEL_FILE_PATH = os.path.normpath(os.path.join(_SCRIPT_DIR, "..", "gaze-model.joblib")) # Modified for robustness # Default path for the trained model
 
 def load_calibration_data(filepath):
     try:
