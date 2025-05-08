@@ -1,9 +1,9 @@
 import cv2
 import pyautogui
 import time
-import eyes
-import gaze
-from neural_network import GazeToScreenModel
+import vision.eyes as eyes
+import vision.gaze as gaze
+from models.neural_network import GazeToScreenModel
 
 # --- Configuration ---
 # These should match the parameters used for your GazeToScreenModel

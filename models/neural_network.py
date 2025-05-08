@@ -43,19 +43,91 @@ class GazeToScreenModel:
     def train(self, calibration_data_file):
         """
         Trains the model using data from calibration_data.json.
+        Removes outliers from each calibration location before training.
 
         Args:
             calibration_data_file (str): Path to the JSON file containing calibration data.
         """
         try:
             with open(calibration_data_file, 'r') as f:
-                calibration_data = json.load(f)
+                calibration_data_input = json.load(f)
         except FileNotFoundError:
             print(f"Error: Calibration data file not found: {calibration_data_file}")
             self.is_trained = False
             return False
         except json.JSONDecodeError:
             print(f"Error: Could not decode JSON from {calibration_data_file}")
+            self.is_trained = False
+            return False
+
+        # Group data by target_screen_px for local outlier removal
+        grouped_data = {}
+        for i, entry in enumerate(calibration_data_input):
+            # Add original index to keep track for detailed logging if needed
+            entry['_original_index'] = i
+            target_px_tuple = tuple(entry.get("target_screen_px", [None,None])) # Use tuple for dict key
+            if None in target_px_tuple:
+                print(f"Warning: Entry {i} missing target_screen_px, cannot group for local outlier removal. Skipping this entry for now.")
+                continue
+            if target_px_tuple not in grouped_data:
+                grouped_data[target_px_tuple] = []
+            grouped_data[target_px_tuple].append(entry)
+
+        filtered_calibration_data = []
+        for target_px, entries_at_target in grouped_data.items():
+            if len(entries_at_target) < 3: # Not enough points to reliably detect outliers
+                filtered_calibration_data.extend(entries_at_target)
+                print(f"Target {target_px}: Kept {len(entries_at_target)} points (too few to filter).")
+                continue
+
+            gaze_points_at_target = []
+            valid_entries_for_target = []
+            for entry in entries_at_target:
+                raw_gaze = entry.get("raw_gaze_camera_px")
+                if isinstance(raw_gaze, list) and len(raw_gaze) == 2 and all(isinstance(v, (int, float)) for v in raw_gaze) and not any(np.isnan(v) or np.isinf(v) for v in raw_gaze):
+                    gaze_points_at_target.append(np.array(raw_gaze))
+                    valid_entries_for_target.append(entry)
+                else:
+                    print(f"Warning: Invalid raw_gaze_camera_px for entry at target {target_px}, original_index {entry.get('_original_index')}. Skipping for local outlier check.")
+
+            if len(valid_entries_for_target) < 3: # Re-check after validating raw_gaze_camera_px
+                filtered_calibration_data.extend(valid_entries_for_target)
+                print(f"Target {target_px}: Kept {len(valid_entries_for_target)} valid points (too few to filter after raw_gaze validation).")
+                continue
+            
+            gaze_points_at_target_np = np.array(gaze_points_at_target)
+            centroid = np.mean(gaze_points_at_target_np, axis=0)
+            distances = np.linalg.norm(gaze_points_at_target_np - centroid, axis=1)
+            
+            mean_distance = np.mean(distances)
+            std_distance = np.std(distances)
+            
+            # If std_distance is very small (e.g., all points are very close), avoid aggressive filtering
+            # This threshold can be adjusted. A std_dev of 0.1 pixels means points are extremely close.
+            MIN_STD_DEV_FOR_FILTERING = 0.1 
+            z_score_threshold = 2.0
+            
+            kept_entries_for_target = []
+            removed_count = 0
+            if std_distance < MIN_STD_DEV_FOR_FILTERING:
+                kept_entries_for_target.extend(valid_entries_for_target)
+                print(f"Target {target_px}: Kept all {len(valid_entries_for_target)} points (std dev of distances {std_distance:.4f} < {MIN_STD_DEV_FOR_FILTERING}).")
+            else:
+                for i, entry in enumerate(valid_entries_for_target):
+                    z_score = (distances[i] - mean_distance) / std_distance if std_distance > 1e-9 else 0 # Avoid division by zero
+                    if abs(z_score) <= z_score_threshold:
+                        kept_entries_for_target.append(entry)
+                    else:
+                        removed_count +=1
+                        print(f"Target {target_px}: Removed outlier entry (original_index {entry.get('_original_index')}) with raw_gaze {entry.get('raw_gaze_camera_px')}, z-score {z_score:.2f}.")
+                print(f"Target {target_px}: Kept {len(kept_entries_for_target)} points, removed {removed_count} outliers.")
+
+            filtered_calibration_data.extend(kept_entries_for_target)
+        
+        # The rest of the training proceeds with 'filtered_calibration_data'
+        calibration_data = filtered_calibration_data 
+        if not calibration_data:
+            print("Error: No valid data remaining after local outlier filtering.")
             self.is_trained = False
             return False
 

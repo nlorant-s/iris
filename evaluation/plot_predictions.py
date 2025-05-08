@@ -2,7 +2,7 @@ import json
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-from neural_network import GazeToScreenModel # Assuming this is in the same directory or accessible
+from models.neural_network import GazeToScreenModel # Assuming this is in the same directory or accessible
 
 # --- Configuration (should match your main.py and calibration.py) ---
 SCREEN_WIDTH = 1920  # Your screen resolution
@@ -10,7 +10,7 @@ SCREEN_HEIGHT = 1080 # Your screen resolution
 CAMERA_WIDTH = 640   # Width of the camera frame used by the model
 CAMERA_HEIGHT = 480  # Height of the camera frame used by the model
 CALIBRATION_DATA_FILE = "calibration_data.json"
-MODEL_FILE_PATH = "gaze_model.joblib" # Default path for the trained model
+MODEL_FILE_PATH = "gaze_model1.joblib" # Default path for the trained model
 
 def load_calibration_data(filepath):
     try:
@@ -41,9 +41,7 @@ def simple_scale_gaze_to_screen(gaze_cam_x, gaze_cam_y, camera_width, camera_hei
 def analyze_data(calibration_data, model):
     target_points_for_stats = [] # Keep original target points for error calculation
     predicted_points_model_for_stats = []
-    predicted_points_simple_scale_for_stats = []
     errors_model = []
-    errors_simple_scale = []
 
     # Data for plotting
     plot_target_coords = []
@@ -52,12 +50,8 @@ def analyze_data(calibration_data, model):
     plot_model_coords = []
     plot_model_colors = []
     
-    plot_simple_coords = []
-    plot_simple_colors = []
-
     # For drawing lines: list of (start_point, end_point, color)
     line_segments_model = []
-    line_segments_simple = []
 
     if not calibration_data:
         print("No calibration data to analyze.")
@@ -122,29 +116,6 @@ def analyze_data(calibration_data, model):
             predicted_points_model_for_stats.append((None, None))
 
 
-        # Get predictions from simple scaling
-        simple_pred_x, simple_pred_y = None, None
-        if raw_gaze_px and all(v is not None for v in raw_gaze_px):
-            simple_pred_x, simple_pred_y = simple_scale_gaze_to_screen(
-                raw_gaze_px[0], raw_gaze_px[1],
-                CAMERA_WIDTH, CAMERA_HEIGHT,
-                SCREEN_WIDTH, SCREEN_HEIGHT
-            )
-        
-        if simple_pred_x is not None and simple_pred_y is not None:
-            simple_coord = (simple_pred_x, simple_pred_y)
-            plot_simple_coords.append(simple_coord)
-            plot_simple_colors.append(current_color)
-            line_segments_simple.append((target_px, simple_coord, current_color))
-
-            # For stats
-            predicted_points_simple_scale_for_stats.append(simple_coord)
-            errors_simple_scale.append(np.linalg.norm(np.array(target_px) - np.array(simple_coord)))
-        else:
-            # For stats, if a target had no valid simple prediction
-            predicted_points_simple_scale_for_stats.append((None,None))
-
-
     # --- Visualization ---
     plt.figure(figsize=(12, 7))
     plt.gca().invert_yaxis() 
@@ -167,19 +138,12 @@ def analyze_data(calibration_data, model):
         for start_pt, end_pt, color in line_segments_model:
             plt.plot([start_pt[0], end_pt[0]], [start_pt[1], end_pt[1]], color=color, linestyle='-', alpha=0.3)
 
-    # Plot simple-scaled points and lines
-    if plot_simple_coords:
-        simple_preds_np = np.array(plot_simple_coords)
-        plt.scatter(simple_preds_np[:, 0], simple_preds_np[:, 1], c=plot_simple_colors, marker='s', s=50, alpha=0.6, label='Simple Scaled Gaze')
-        for start_pt, end_pt, color in line_segments_simple:
-            plt.plot([start_pt[0], end_pt[0]], [start_pt[1], end_pt[1]], color=color, linestyle='--', alpha=0.3)
-
     plt.legend()
     plt.axis('equal') 
     plt.show()
 
     # --- Print Statistics ---
-    # Statistics calculation remains the same, using errors_model and errors_simple_scale
+    # Statistics calculation remains the same, using errors_model
     if errors_model:
         print(f"\n--- Model Prediction Statistics ---")
         # Using len(calibration_data) for total, as errors_model only counts valid predictions
@@ -189,17 +153,8 @@ def analyze_data(calibration_data, model):
         print(f"Standard Deviation of Error (pixels): {np.std(errors_model):.2f}")
         print(f"Min Error (pixels): {np.min(errors_model):.2f}")
         print(f"Max Error (pixels): {np.max(errors_model):.2f}")
-
-    if errors_simple_scale:
-        print(f"\n--- Simple Scaling Statistics ---")
-        print(f"Number of points with simple scaled predictions: {len(errors_simple_scale)} / {len(target_points_for_stats)}")
-        print(f"Average Error (pixels): {np.mean(errors_simple_scale):.2f}")
-        print(f"Median Error (pixels): {np.median(errors_simple_scale):.2f}")
-        print(f"Standard Deviation of Error (pixels): {np.std(errors_simple_scale):.2f}")
-        print(f"Min Error (pixels): {np.min(errors_simple_scale):.2f}")
-        print(f"Max Error (pixels): {np.max(errors_simple_scale):.2f}")
         
-    if not errors_model and not errors_simple_scale:
+    if not errors_model:
         print("\nNo valid predictions could be made to calculate error statistics.")
 
 
