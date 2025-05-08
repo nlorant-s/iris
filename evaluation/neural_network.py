@@ -1,6 +1,7 @@
 import numpy as np
 from sklearn.preprocessing import PolynomialFeatures
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import Ridge
+from sklearn.metrics import mean_squared_error
 import joblib
 import os
 import json
@@ -26,9 +27,9 @@ class GazeToScreenModel:
         self.camera_height = camera_height
 
         self.poly_features_x = PolynomialFeatures(degree=2, include_bias=False)
-        self.model_x = LinearRegression()
+        self.model_x = Ridge(alpha=1.0)
         self.poly_features_y = PolynomialFeatures(degree=2, include_bias=False)
-        self.model_y = LinearRegression()
+        self.model_y = Ridge(alpha=1.0)
         
         self.is_trained = False
         self.model_path = os.path.join(model_dir, self.MODEL_FILENAME)
@@ -191,7 +192,7 @@ class GazeToScreenModel:
         # For PolynomialFeatures(degree=2, include_bias=False) with 10 input features,
         # the number of output polynomial features is 65.
         n_poly_features = 65 
-        min_samples_needed = n_poly_features + 1 # For LinearRegression
+        min_samples_needed = n_poly_features + 1 # For Ridge regression
 
         if valid_entries < min_samples_needed:
             print(f"Error: Not enough valid data points ({valid_entries}) after filtering. "
@@ -231,6 +232,14 @@ class GazeToScreenModel:
 
             gaze_Y_poly = self.poly_features_y.fit_transform(gaze_Y_features)
             self.model_y.fit(gaze_Y_poly, screen_Y_target)
+            
+            # Report training error
+            screen_X_pred = self.model_x.predict(gaze_X_poly)
+            screen_Y_pred = self.model_y.predict(gaze_Y_poly)
+            
+            mse_x = mean_squared_error(screen_X_target, screen_X_pred)
+            mse_y = mean_squared_error(screen_Y_target, screen_Y_pred)
+            print(f"Training complete. MSE_X: {mse_x:.4f}, MSE_Y: {mse_y:.4f}")
             
             self.is_trained = True
             print(f"Model training complete. Expected feature count for prediction: {self._expected_feature_count}")
@@ -375,9 +384,11 @@ class GazeToScreenModel:
             else:
                 print("Warning: 'poly_features_x_n_features_in' not found in loaded model. Model may not transform features correctly.")
 
-            self.model_x = LinearRegression()
+            self.model_x = Ridge(alpha=1.0)
             self.model_x.coef_ = model_data['model_x_coef']
             self.model_x.intercept_ = model_data['model_x_intercept']
+            if hasattr(self.model_x, 'coef_') and self.model_x.coef_ is not None:
+                 self.model_x.n_features_in_ = self.model_x.coef_.shape[0]
 
             self.poly_features_y = PolynomialFeatures(**model_data['poly_features_y_params'])
             if 'poly_features_y_n_features_in' in model_data and model_data['poly_features_y_n_features_in'] is not None:
@@ -392,16 +403,38 @@ class GazeToScreenModel:
             else:
                 print("Warning: 'poly_features_y_n_features_in' not found in loaded model. Model may not transform features correctly.")
 
-            self.model_y = LinearRegression()
+            self.model_y = Ridge(alpha=1.0)
             self.model_y.coef_ = model_data['model_y_coef']
             self.model_y.intercept_ = model_data['model_y_intercept']
+            if hasattr(self.model_y, 'coef_') and self.model_y.coef_ is not None:
+                 self.model_y.n_features_in_ = self.model_y.coef_.shape[0]
             
             self.is_trained = model_data.get('is_trained', False)
             self._expected_feature_count = model_data.get('_expected_feature_count', -1)
             
             if self.is_trained and hasattr(self.model_x, 'coef_') and hasattr(self.model_y, 'coef_'):
-                print(f"Model successfully loaded from {filepath}. Expected feature count: {self._expected_feature_count}")
-                return True
+                try:
+                    if hasattr(self.poly_features_x, 'n_features_in_') and self.poly_features_x.n_features_in_ > 0 and \
+                       hasattr(self.poly_features_y, 'n_features_in_') and self.poly_features_y.n_features_in_ > 0:
+                         dummy_check_input_size = self._expected_feature_count if self._expected_feature_count > 0 else \
+                                                  (self.poly_features_x.n_features_in_ if hasattr(self.poly_features_x, 'n_features_in_') and self.poly_features_x.n_features_in_ > 0 else 10)
+                         if dummy_check_input_size <= 0:
+                             print(f"Warning: Could not determine input feature size for poly transform check. Assuming 10.")
+                             dummy_check_input_size = 10
+
+                         dummy_check_input = np.zeros((1, dummy_check_input_size))
+                         self.poly_features_x.transform(dummy_check_input)
+                         self.poly_features_y.transform(dummy_check_input)
+                         print(f"Model successfully loaded from {filepath}. Expected feature count: {self._expected_feature_count}")
+                         return True
+                    else:
+                        print(f"Model loaded from {filepath}, but polynomial features seem not properly initialized. n_features_in_ for poly_x: {getattr(self.poly_features_x, 'n_features_in_', 'N/A')}, poly_y: {getattr(self.poly_features_y, 'n_features_in_', 'N/A')}")
+                        self.is_trained = False
+                        return False
+                except Exception as e_poly:
+                    print(f"Model loaded, but polynomial features transform failed: {e_poly}")
+                    self.is_trained = False
+                    return False
             else:
                 print(f"Model loaded from {filepath}, but seems incomplete or marked as not trained.")
                 self.is_trained = False

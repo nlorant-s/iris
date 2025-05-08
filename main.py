@@ -13,8 +13,8 @@ SCREEN_HEIGHT = 1080 # Your screen resolution
 CAMERA_WIDTH = 640   # Width of the camera frame used by the model
 CAMERA_HEIGHT = 480  # Height of the camera frame used by the model
 
-# Mouse movement smoothing factor (0.0 to 1.0). Higher values mean smoother but slower.
-SMOOTHING_FACTOR = 0.95 # Adjust as needed
+# Mouse movement smoothing factor (0.0 to 1.0). Lower values mean smoother but slower.
+SMOOTHING_FACTOR = 0.1 # Adjust as needed
 previous_mouse_x, previous_mouse_y = pyautogui.position()
 
 def main_realtime_gaze_mouse():
