@@ -105,7 +105,7 @@ class GazeToScreenModel:
             # If std_distance is very small (e.g., all points are very close), avoid aggressive filtering
             # This threshold can be adjusted. A std_dev of 0.1 pixels means points are extremely close.
             MIN_STD_DEV_FOR_FILTERING = 0.1 
-            z_score_threshold = 2.0
+            z_score_threshold = 2.5 # Adjusted from 2.0 to 2.5
             
             kept_entries_for_target = []
             removed_count = 0
@@ -139,10 +139,10 @@ class GazeToScreenModel:
 
         valid_entries = 0
         # Define thresholds for outlier detection
-        MAX_RVEC_COMPONENT_ABS = 10.0  # Max absolute value for any rvec component (radians)
-        MAX_TVEC_XY_COMPONENT_ABS = 1500.0 # Max absolute value for tvec x, y components (e.g., mm)
-        MIN_TVEC_Z_COMPONENT = 100.0    # Min value for tvec z component (e.g., mm, >0)
-        MAX_TVEC_Z_COMPONENT = 4000.0   # Max value for tvec z component (e.g., mm)
+        # MAX_RVEC_COMPONENT_ABS = 10.0  # Max absolute value for any rvec component (radians)
+        # MAX_TVEC_XY_COMPONENT_ABS = 1500.0 # Max absolute value for tvec x, y components (e.g., mm)
+        # MIN_TVEC_Z_COMPONENT = 100.0    # Min value for tvec z component (e.g., mm, >0)
+        # MAX_TVEC_Z_COMPONENT = 4000.0   # Max value for tvec z component (e.g., mm)
 
         # Helper to check list of numbers for structure, type, and NaN/Inf
         def _validate_list_of_numbers(data, expected_len, name_for_error):
@@ -179,16 +179,16 @@ class GazeToScreenModel:
                 is_entry_valid = False; error_messages.append(f"Invalid samples: {samples}")
 
             # Outlier checks if data structure and types are valid so far
-            if is_entry_valid:
-                if any(abs(val) > MAX_RVEC_COMPONENT_ABS for val in rvec_val):
-                    error_messages.append(f"Outlier in rvec values: {rvec_val}")
-                    is_entry_valid = False
+            # if is_entry_valid:
+                # if any(abs(val) > MAX_RVEC_COMPONENT_ABS for val in rvec_val):
+                #     error_messages.append(f"Outlier in rvec values: {rvec_val}")
+                #     is_entry_valid = False
             
-                if is_entry_valid and (abs(tvec_val[0]) > MAX_TVEC_XY_COMPONENT_ABS or
-                                       abs(tvec_val[1]) > MAX_TVEC_XY_COMPONENT_ABS or
-                                       not (MIN_TVEC_Z_COMPONENT <= tvec_val[2] <= MAX_TVEC_Z_COMPONENT)):
-                    error_messages.append(f"Outlier in tvec values: {tvec_val}")
-                    is_entry_valid = False
+                # if is_entry_valid and (abs(tvec_val[0]) > MAX_TVEC_XY_COMPONENT_ABS or
+                #                        abs(tvec_val[1]) > MAX_TVEC_XY_COMPONENT_ABS or
+                #                        not (MIN_TVEC_Z_COMPONENT <= tvec_val[2] <= MAX_TVEC_Z_COMPONENT)):
+                #     error_messages.append(f"Outlier in tvec values: {tvec_val}")
+                #     is_entry_valid = False
             
             if is_entry_valid:
                 raw_gaze_coords.append(raw_gaze_val)

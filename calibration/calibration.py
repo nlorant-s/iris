@@ -2,8 +2,16 @@ import cv2
 import numpy as np
 import time
 import json
-import vision.eyes as eyes
-import vision.gaze as gaze
+import sys # Add sys import
+import os # Add os import
+
+# Add parent directory to sys.path to find the vision module
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.insert(0, parent_dir)
+
+from vision import eyes, gaze
+from datetime import datetime
 
 # --- Configuration ---
 SCREEN_WIDTH = 1920  # Replace with actual screen width if possible, or use a fixed calibration screen size
@@ -31,7 +39,7 @@ CALIBRATION_POINTS_PERCENTAGES = [
 # Convert percentage points to pixel coordinates
 CALIBRATION_POINTS = [(int(p[0] * SCREEN_WIDTH), int(p[1] * SCREEN_HEIGHT)) for p in CALIBRATION_POINTS_PERCENTAGES]
 
-OUTPUT_FILE = "calibration_data.json"
+OUTPUT_FILE = f"training-data-{datetime.now().strftime('%H%M')}.json"
 POINT_DISPLAY_TIME_SEC = 0.2  # Time to display each point before capture instruction
 CAPTURE_DURATION_SEC = 5.0    # Increased duration to capture gaze data with head movement
 SAMPLES_PER_POINT = 100     # Increased samples to try and collect per point

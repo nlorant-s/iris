@@ -3,7 +3,7 @@ import pyautogui
 import time
 import vision.eyes as eyes
 import vision.gaze as gaze
-from models.neural_network import GazeToScreenModel
+from evaluation.neural_network import GazeToScreenModel
 
 # --- Configuration ---
 # These should match the parameters used for your GazeToScreenModel
@@ -40,12 +40,13 @@ def main_realtime_gaze_mouse():
     )
     # Attempt to train the model if it's not already trained
     if not model.is_trained:
-        print("Model is not trained. Attempting to train with 'calibration_data.json'...")
-        if model.train("calibration_data.json"):
+        print("Model is not trained. Attempting to train with 'data/training/calibration_data.json'...")
+        if model.train("data/training/calibration_data.json"): # Corrected path
             print("Model training successful.")
         else:
             print("Model training failed. Predictions will use simple scaling (handled by main.py).")
             print("Run calibration.py to generate 'calibration_data.json' if it's missing or invalid.")
+            print("INFO: Reverting to simple gaze tracking due to model training failure.") # Added notification
             # model.is_trained remains False
 
     print("Gaze-to-screen model initialized.")
@@ -96,9 +97,12 @@ def main_realtime_gaze_mouse():
                         gaze_cam_x, gaze_cam_y = raw_gaze_camera_coords
                         # This call might trigger a warning in predict if model expects more features
                         predicted_screen_x, predicted_screen_y = model.predict(gaze_cam_x, gaze_cam_y)
+                        if predicted_screen_x is not None and predicted_screen_y is not None:
+                            print("INFO: Using model prediction with raw_gaze_camera_coords only.") # Added notification
             
             elif gaze_features and gaze_features.get('raw_iris_pixels'): # Model is not trained, do simple scaling in main.py
                 raw_gaze_camera_coords = gaze_features.get('raw_iris_pixels')
+                print("INFO: Model not trained or required features missing. Reverting to simple gaze tracking (scaling in main.py).") # Added notification
                 gaze_cam_x, gaze_cam_y = raw_gaze_camera_coords
                 
                 if CAMERA_WIDTH <= 0 or CAMERA_HEIGHT <= 0:

@@ -2,17 +2,17 @@ import json
 import os
 import numpy as np
 from sklearn.model_selection import train_test_split
-from models.neural_network import GazeToScreenModel # Assuming neural_network.py is in the same directory
+from neural_network import GazeToScreenModel # Assuming neural_network.py is in the same directory
 
 # --- Configuration ---
 SCREEN_WIDTH = 1920
 SCREEN_HEIGHT = 1080
 CAMERA_WIDTH = 640
 CAMERA_HEIGHT = 480
-CALIBRATION_DATA_FILE = "calibration_data.json"
-TEMP_TRAIN_DATA_FILE = "temp_train_data_for_predict.json"
+CALIBRATION_DATA_FILE = "../data/training/training-data-0251.json" # Corrected path
+TEMP_TRAIN_DATA_FILE = "../data/training/temp_train_data_for_predict.json" # Corrected path
 # Use a different model path for this script to avoid overwriting the main one
-MODEL_FILE_PATH_PREDICT = "gaze_model_predict.joblib" 
+MODEL_FILE_PATH_PREDICT = "../data/models/gaze_model_predict.joblib" # Corrected path
 
 def load_calibration_data(filepath):
     """Loads calibration data from a JSON file."""

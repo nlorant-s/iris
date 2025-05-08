@@ -1,16 +1,20 @@
 import json
+import os # Added import
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-from models.neural_network import GazeToScreenModel # Assuming this is in the same directory or accessible
+from neural_network import GazeToScreenModel # Assuming this is in the same directory or accessible
+
+# Get the absolute path to the directory where this script is located
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__)) # Added for robust paths
 
 # --- Configuration (should match your main.py and calibration.py) ---
 SCREEN_WIDTH = 1920  # Your screen resolution
 SCREEN_HEIGHT = 1080 # Your screen resolution
 CAMERA_WIDTH = 640   # Width of the camera frame used by the model
 CAMERA_HEIGHT = 480  # Height of the camera frame used by the model
-CALIBRATION_DATA_FILE = "calibration_data.json"
-MODEL_FILE_PATH = "gaze_model1.joblib" # Default path for the trained model
+CALIBRATION_DATA_FILE = os.path.normpath(os.path.join(_SCRIPT_DIR, "..", "data", "training", "training-data-0251.json")) # Modified for robustness
+MODEL_FILE_PATH = os.path.normpath(os.path.join(_SCRIPT_DIR, "..", "data", "models", "gaze_model1.joblib")) # Modified for robustness # Default path for the trained model
 
 def load_calibration_data(filepath):
     try:
