@@ -39,7 +39,10 @@ CALIBRATION_POINTS_PERCENTAGES = [
 # Convert percentage points to pixel coordinates
 CALIBRATION_POINTS = [(int(p[0] * SCREEN_WIDTH), int(p[1] * SCREEN_HEIGHT)) for p in CALIBRATION_POINTS_PERCENTAGES]
 
-OUTPUT_FILE = f"training-data-{datetime.now().strftime('%H%M')}.json"
+# Define the target training data file
+TARGET_TRAINING_FILE = os.path.normpath(os.path.join(current_dir, "..", "data", "training", "training-data-0336.json"))
+# OUTPUT_FILE = f"training-data-{datetime.now().strftime('%H%M')}.json" # Commented out, using fixed target file
+
 POINT_DISPLAY_TIME_SEC = 0.2  # Time to display each point before capture instruction
 CAPTURE_DURATION_SEC = 5.0    # Increased duration to capture gaze data with head movement
 SAMPLES_PER_POINT = 100     # Increased samples to try and collect per point
@@ -267,11 +270,35 @@ def main_calibration_procedure():
     cv2.destroyAllWindows()
 
     if calibration_data:
-        with open(OUTPUT_FILE, 'w') as f:
-            json.dump(calibration_data, f, indent=4)
-        print(f"\nCalibration complete. Data saved to {OUTPUT_FILE}")
-        print(f"Total individual data samples collected: {len(calibration_data)}")
-        print("This data can now be used to train or refine the GazeToScreenModel.")
+        existing_data = []
+        if os.path.exists(TARGET_TRAINING_FILE):
+            try:
+                with open(TARGET_TRAINING_FILE, 'r') as f:
+                    existing_data = json.load(f)
+                if not isinstance(existing_data, list):
+                    print(f"Warning: Existing data in {TARGET_TRAINING_FILE} is not a list. Overwriting with new data.")
+                    existing_data = []
+                print(f"Loaded {len(existing_data)} existing samples from {TARGET_TRAINING_FILE}.")
+            except json.JSONDecodeError:
+                print(f"Warning: Could not decode JSON from {TARGET_TRAINING_FILE}. File will be overwritten.")
+                existing_data = []
+            except Exception as e:
+                print(f"Error loading existing data from {TARGET_TRAINING_FILE}: {e}. File will be overwritten.")
+                existing_data = []
+        
+        combined_data = existing_data + calibration_data
+        
+        try:
+            # Ensure the directory exists
+            os.makedirs(os.path.dirname(TARGET_TRAINING_FILE), exist_ok=True)
+            with open(TARGET_TRAINING_FILE, 'w') as f:
+                json.dump(combined_data, f, indent=4)
+            print(f"\nCalibration complete. Data appended and saved to {TARGET_TRAINING_FILE}")
+            print(f"Total individual data samples collected in this session: {len(calibration_data)}")
+            print(f"Total samples in file now: {len(combined_data)}")
+            print("This data can now be used to train or refine the GazeToScreenModel.")
+        except Exception as e:
+            print(f"Error saving combined data to {TARGET_TRAINING_FILE}: {e}")
     else:
         print("\nCalibration finished, but no data was collected.")
 

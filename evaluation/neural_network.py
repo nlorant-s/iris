@@ -451,40 +451,29 @@ if __name__ == "__main__":
     CAMERA_WIDTH = 640
     CAMERA_HEIGHT = 480
     
-    dummy_calibration_file = "dummy_calibration_data.json"
-    dummy_data = [
-        {"target_screen_px": [100, 100], "raw_gaze_camera_px": [50, 50], 
-         "normalized_pupil_coord_xy": [0.5, 0.5], "head_pose_rvec": [0.1, 0.1, 0.1], "head_pose_tvec": [1, 1, -10]},
-        {"target_screen_px": [1800, 100], "raw_gaze_camera_px": [600, 50], 
-         "normalized_pupil_coord_xy": [0.5, 0.5], "head_pose_rvec": [-0.1, 0.1, 0.1], "head_pose_tvec": [-1, 1, -10]},
-        {"target_screen_px": [100, 1000], "raw_gaze_camera_px": [50, 450], 
-         "normalized_pupil_coord_xy": [0.5, 0.5], "head_pose_rvec": [0.1, -0.1, 0.1], "head_pose_tvec": [1, -1, -10]},
-        {"target_screen_px": [1800, 1000], "raw_gaze_camera_px": [600, 450], 
-         "normalized_pupil_coord_xy": [0.5, 0.5], "head_pose_rvec": [0.0, 0.0, 0.0], "head_pose_tvec": [0, 0, -12]},
-        {"target_screen_px": [960, 540], "raw_gaze_camera_px": [320, 240], 
-         "normalized_pupil_coord_xy": [0.5, 0.5], "head_pose_rvec": [0.2, 0.1, -0.1], "head_pose_tvec": [0.5, -0.5, -11]}
-    ]
-    for i in range(10): # Generate enough samples to pass the min_samples_needed check
-        dummy_data.append({
-            "target_screen_px": [np.random.randint(0, SCREEN_WIDTH), np.random.randint(0, SCREEN_HEIGHT)],
-            "raw_gaze_camera_px": [np.random.randint(0, CAMERA_WIDTH), np.random.randint(0, CAMERA_HEIGHT)],
-            "normalized_pupil_coord_xy": [np.random.rand(), np.random.rand()],
-            "head_pose_rvec": (np.random.rand(3) * 0.4 - 0.2).tolist(),
-            "head_pose_tvec": (np.array([np.random.uniform(-5,5), np.random.uniform(-5,5), np.random.uniform(-20,-5)])).tolist()
-        })
-
-    with open(dummy_calibration_file, 'w') as f:
-        json.dump(dummy_data, f)
-
+    # Construct path to calibration file relative to this script's location
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    calibration_file_path = os.path.join(script_dir, "..", "data", "training", "training-data-0336.json")
+    calibration_file_path = os.path.normpath(calibration_file_path) # Normalize path (e.g., removes "..")
+    
+    # Check if the calibration file exists before proceeding
+    if not os.path.exists(calibration_file_path):
+        # calibration_file_path is now absolute, so os.path.abspath() is not needed here
+        print(f"Error: Calibration data file not found at {calibration_file_path}")
+        print("Please ensure the file exists and the path is correct.")
+        # The rest of the original error handling logic (dummy file creation) can remain if desired,
+        # but the primary goal here is to fix the path resolution.
+    
     model = GazeToScreenModel(
         screen_width=SCREEN_WIDTH, 
         screen_height=SCREEN_HEIGHT,
         camera_width=CAMERA_WIDTH,
-        camera_height=CAMERA_HEIGHT
+        camera_height=CAMERA_HEIGHT,
+        model_dir="." # Saves gaze_model.joblib in the current directory (evaluation/)
     )
 
-    print("\n--- Training Model ---")
-    model.train(dummy_calibration_file)
+    print(f"\n--- Training Model using {calibration_file_path} ---")
+    training_success = model.train(calibration_file_path)
 
     print("\n--- Testing Prediction (Post-Training) ---")
     gaze_inputs = [
@@ -494,7 +483,8 @@ if __name__ == "__main__":
         (0, 0),
         (CAMERA_WIDTH - 1, CAMERA_HEIGHT - 1)
     ]
-    if model.is_trained:
+    if model.is_trained and training_success:
+        print("Model was trained successfully.")
         for gx, gy in gaze_inputs:
             print(f"Input Gaze (Camera: {CAMERA_WIDTH}x{CAMERA_HEIGHT}): ({gx}, {gy})")
             pred_x, pred_y = model.predict(gx, gy, 
@@ -507,14 +497,19 @@ if __name__ == "__main__":
             print(f"Predicted Screen Coords (Fallback): ({pred_x_fallback}, {pred_y_fallback})")
             print("-" * 20)
     else:
-        print("Model was not trained successfully, skipping prediction test.")
+        print(f"Model training with {calibration_file_path} was not successful. Skipping prediction test.")
 
     print("\n--- Testing Model Loading ---")
+    # Define a unique model filename for this test run to avoid conflicts if needed
+    # For now, using the default MODEL_FILENAME which will be in the execution directory (evaluation/)
+    # The model_path for loading will be './gaze_model.joblib' if run from evaluation/
+    
     model_loaded = GazeToScreenModel(
         screen_width=SCREEN_WIDTH, 
         screen_height=SCREEN_HEIGHT,
         camera_width=CAMERA_WIDTH,
-        camera_height=CAMERA_HEIGHT
+        camera_height=CAMERA_HEIGHT,
+        model_dir="." # Expects gaze_model.joblib in the current directory (evaluation/)
     )
     if model_loaded.is_trained:
         print("Loaded model is trained. Testing prediction:")
@@ -530,9 +525,12 @@ if __name__ == "__main__":
             print(f"Predicted Screen Coords (Fallback): ({pred_x_fallback}, {pred_y_fallback})")
             print("-" * 20)
     else:
-        print("Loaded model is NOT trained or failed to load properly.")
+        print("Loaded model is NOT trained or failed to load properly (this is expected if training failed or no model was saved).")
 
-    if os.path.exists(dummy_calibration_file):
-        os.remove(dummy_calibration_file)
-    if os.path.exists(model.MODEL_FILENAME):
-        os.remove(model.MODEL_FILENAME)
+    # Clean up the model file created by this script run
+    # model.model_path is os.path.join(model_dir, MODEL_FILENAME)
+    # model_dir is "." so model_path is "./gaze_model.joblib"
+    if os.path.exists(model.model_path):
+        print(f"Removing model file: {model.model_path}")
+        os.remove(model.model_path)
+    # No dummy_calibration_file to remove in this version

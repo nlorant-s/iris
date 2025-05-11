@@ -5,7 +5,7 @@ import vision.eyes as eyes
 import vision.gaze as gaze
 from evaluation.neural_network import GazeToScreenModel
 import os
-import re
+import argparse # Added for command-line arguments
 
 # --- Configuration ---
 SCREEN_WIDTH = 1920  # Your screen resolution
@@ -13,11 +13,18 @@ SCREEN_HEIGHT = 1080 # Your screen resolution
 CAMERA_WIDTH = 640   # Width of the camera frame used by the model
 CAMERA_HEIGHT = 480  # Height of the camera frame used by the model
 
+# --- File Paths ---
+# Get the directory of the current script (main.py)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_TRAINING_DATA_FILE = os.path.join(BASE_DIR, "data", "training", "training-data-0336.json")
+DEFAULT_MODEL_DIR = os.path.join(BASE_DIR, "evaluation") # Model is saved/loaded from evaluation directory
+DEFAULT_MODEL_FILE = os.path.join(DEFAULT_MODEL_DIR, GazeToScreenModel.MODEL_FILENAME) # e.g., evaluation/gaze_model.joblib
+
 # Mouse movement smoothing factor (0.0 to 1.0). Lower values mean smoother but slower.
-SMOOTHING_FACTOR = 0.1 # Adjust as needed
+SMOOTHING_FACTOR = 0.05 # Adjust as needed
 previous_mouse_x, previous_mouse_y = pyautogui.position()
 
-def main_realtime_gaze_mouse():
+def main_realtime_gaze_mouse(retrain_model=False, training_file=DEFAULT_TRAINING_DATA_FILE, model_file_path=DEFAULT_MODEL_FILE):
     global previous_mouse_x, previous_mouse_y
 
     # Initialize webcam
@@ -30,23 +37,46 @@ def main_realtime_gaze_mouse():
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
 
     # Initialize the GazeToScreenModel
-    # This assumes your neural_network.py's GazeToScreenModel is ready to be used.
-    # If it needs to load a specific model file, that logic should be in GazeToScreenModel.
+    # The model_dir for GazeToScreenModel should point to where gaze_model.joblib is expected or will be saved.
     model = GazeToScreenModel(
         screen_width=SCREEN_WIDTH,
         screen_height=SCREEN_HEIGHT,
         camera_width=CAMERA_WIDTH,
-        camera_height=CAMERA_HEIGHT
+        camera_height=CAMERA_HEIGHT,
+        model_dir=DEFAULT_MODEL_DIR # Pass the directory for model loading/saving
     )
-    # Attempt to train the model if it's not already trained
-    if not model.is_trained:
-        print("Model is not trained. Attempting to train...")
-        if model.train("data/training/training-data-0336.json"): # Corrected path
-            print("Model training successful.")
+
+    if retrain_model:
+        print(f"--- Retraining model using {training_file} ---")
+        if not os.path.exists(training_file):
+            print(f"Error: Training data file not found: {training_file}")
+            print("Please run calibration first or ensure the file path is correct.")
+            # Decide if to proceed with an untrained/previously loaded model or exit
+            if not model.is_trained:
+                print("Model is not trained and retraining failed. Exiting.")
+                cap.release()
+                cv2.destroyAllWindows()
+                return
+            else:
+                print("Proceeding with the previously loaded model.")
+        elif model.train(training_file): # train method saves the model to model.model_path
+            print(f"Model retraining successful. Model saved to {model.model_path}")
         else:
-            print("Model training failed. Predictions will use simple scaling (handled by main.py).")
-            print("INFO: Reverting to simple gaze tracking due to model training failure.") # Added notification
-            # model.is_trained remains False
+            print("Model retraining failed.")
+            if not model.is_trained:
+                print("Model is not trained and retraining failed. Predictions will use simple scaling.")
+            else:
+                print("Proceeding with the previously loaded model.")
+    elif not model.is_trained:
+        print("Model is not trained and no retraining was requested.")
+        print(f"Attempting to train with default data: {DEFAULT_TRAINING_DATA_FILE}")
+        if os.path.exists(DEFAULT_TRAINING_DATA_FILE):
+            if model.train(DEFAULT_TRAINING_DATA_FILE):
+                print("Initial model training successful.")
+            else:
+                print("Initial model training failed. Predictions will use simple scaling.")
+        else:
+            print(f"Default training file {DEFAULT_TRAINING_DATA_FILE} not found. Predictions will use simple scaling.")
 
     # PyAutoGUI setup
     pyautogui.FAILSAFE = False # Be cautious: disables the failsafe (moving mouse to corner to stop)
@@ -165,4 +195,16 @@ def main_realtime_gaze_mouse():
         print("Webcam released and windows closed.")
 
 if __name__ == "__main__":
-    main_realtime_gaze_mouse()
+    parser = argparse.ArgumentParser(description="Real-time Gaze Mouse Control")
+    parser.add_argument("--retrain", action="store_true",
+                        help="Force retraining of the gaze model before starting.")
+    parser.add_argument("--training_file", type=str, default=DEFAULT_TRAINING_DATA_FILE,
+                        help=f"Path to the training data JSON file. Defaults to {DEFAULT_TRAINING_DATA_FILE}")
+    
+    args = parser.parse_args()
+
+    # Construct the model file path based on the directory GazeToScreenModel uses
+    # GazeToScreenModel uses its model_dir parameter to construct its internal model_path.
+    # We ensure main.py is aware of this location for clarity if needed, but model handles its own path.
+
+    main_realtime_gaze_mouse(retrain_model=args.retrain, training_file=args.training_file)

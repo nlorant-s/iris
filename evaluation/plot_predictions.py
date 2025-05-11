@@ -14,7 +14,7 @@ SCREEN_HEIGHT = 1080 # Your screen resolution
 CAMERA_WIDTH = 640   # Width of the camera frame used by the model
 CAMERA_HEIGHT = 480  # Height of the camera frame used by the model
 CALIBRATION_DATA_FILE = os.path.normpath(os.path.join(_SCRIPT_DIR, "..", "data", "training", "training-data-0336.json")) # Modified for robustness
-MODEL_FILE_PATH = os.path.normpath(os.path.join(_SCRIPT_DIR, "..", "gaze-model_.joblib")) # Modified for robustness # Default path for the trained model
+MODEL_FILE_PATH = os.path.normpath(os.path.join(_SCRIPT_DIR, "..", "gaze-model.joblib")) # Modified for robustness # Default path for the trained model
 
 def load_calibration_data(filepath):
     try:
@@ -73,9 +73,19 @@ def analyze_data(calibration_data, model):
         
         target_px = entry.get("target_screen_px")
         raw_gaze_px = entry.get("raw_gaze_camera_px")
-        pupil_norm = entry.get("avg_normalized_pupil_coord_xy")
-        rvec = entry.get("avg_head_pose_rvec")
-        tvec = entry.get("avg_head_pose_tvec")
+        
+        pupil_norm = entry.get("normalized_pupil_coord_xy")
+        if pupil_norm is None:
+            pupil_norm = entry.get("avg_normalized_pupil_coord_xy")
+            
+        rvec = entry.get("head_pose_rvec")
+        if rvec is None:
+            rvec = entry.get("avg_head_pose_rvec")
+            
+        tvec = entry.get("head_pose_tvec")
+        if tvec is None:
+            tvec = entry.get("avg_head_pose_tvec")
+            
         # samples = entry.get("samples") # samples not used in current logic, but good to have if needed
 
         if not all(isinstance(c, (int, float)) for c in target_px if c is not None) or len(target_px) != 2:
