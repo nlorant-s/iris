@@ -1,5 +1,5 @@
 import cv2
-from . import eyes # Import the refactored eyes.py module
+import eyes # Import the refactored eyes.py module
 import numpy as np # Add numpy for calculations if needed
 
 # Define landmark indices for irises (based on MediaPipe Face Mesh)

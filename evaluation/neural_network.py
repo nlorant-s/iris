@@ -1,45 +1,53 @@
 import numpy as np
-from sklearn.preprocessing import PolynomialFeatures
+from sklearn.preprocessing import PolynomialFeatures, StandardScaler
 from sklearn.linear_model import Ridge
+from sklearn.ensemble import BaggingRegressor
 from sklearn.metrics import mean_squared_error
 import joblib
 import os
 import json
 
 class GazeToScreenModel:
-    MODEL_FILENAME = "gaze_model.joblib"
+    MODEL_FILENAME = "gaze_model.joblib" # Used by __main__ to construct default path
 
-    def __init__(self, screen_width, screen_height, camera_width, camera_height, model_dir="."):
+    def __init__(self, screen_width, screen_height, camera_width, camera_height, model_path): # Changed model_dir to model_path
         """
         Initializes the gaze to screen model.
-        Tries to load a pre-trained model. If not found, initializes untrained models.
+        Tries to load a pre-trained model using the provided full model_path.
+        If not found, initializes untrained models.
 
         Args:
             screen_width (int): The width of the screen in pixels.
             screen_height (int): The height of the screen in pixels.
             camera_width (int): The width of the camera frame in pixels.
             camera_height (int): The height of the camera frame in pixels.
-            model_dir (str): Directory where the model file is stored.
+            model_path (str): Full path to the model file (.joblib).
         """
         self.screen_width = screen_width
         self.screen_height = screen_height
         self.camera_width = camera_width
         self.camera_height = camera_height
 
+        self.scaler = StandardScaler()  # Initialize scaler
         self.poly_features_x = PolynomialFeatures(degree=2, include_bias=False)
-        self.model_x = Ridge(alpha=1.0)
+        self.model_x = BaggingRegressor(estimator=Ridge(alpha=1.0), n_estimators=10, random_state=42)
         self.poly_features_y = PolynomialFeatures(degree=2, include_bias=False)
-        self.model_y = Ridge(alpha=1.0)
+        self.model_y = BaggingRegressor(estimator=Ridge(alpha=1.0), n_estimators=10, random_state=42)
         
         self.is_trained = False
-        self.model_path = os.path.join(model_dir, self.MODEL_FILENAME)
+        self.model_path = model_path # Use the provided full path
+        self._original_model_path_for_reinit = model_path # Store for re-initialization on load failure
         self._expected_feature_count = -1 
 
         print(f"GazeToScreenModel initialized for screen: {screen_width}x{screen_height}, camera: {camera_width}x{camera_height}")
+        # Removed self._model_dir_for_init as model_path is now the full path
         if self.load_model(self.model_path):
-            print(f"Loaded pre-trained model from {self.model_path}")
+            if self.is_trained:
+                print(f"Loaded pre-trained model from {self.model_path}")
+            else:
+                print(f"Model structure loaded from {self.model_path}, but it's not trained or failed validation. Model needs training.")
         else:
-            print(f"No pre-trained model found at {self.model_path}. Model needs training.")
+            print(f"No pre-trained model found at {self.model_path} or failed to load. Model needs training.")
 
     def train(self, calibration_data_file):
         """
@@ -61,12 +69,10 @@ class GazeToScreenModel:
             self.is_trained = False
             return False
 
-        # Group data by target_screen_px for local outlier removal
         grouped_data = {}
         for i, entry in enumerate(calibration_data_input):
-            # Add original index to keep track for detailed logging if needed
             entry['_original_index'] = i
-            target_px_tuple = tuple(entry.get("target_screen_px", [None,None])) # Use tuple for dict key
+            target_px_tuple = tuple(entry.get("target_screen_px", [None,None]))
             if None in target_px_tuple:
                 print(f"Warning: Entry {i} missing target_screen_px, cannot group for local outlier removal. Skipping this entry for now.")
                 continue
@@ -76,7 +82,7 @@ class GazeToScreenModel:
 
         filtered_calibration_data = []
         for target_px, entries_at_target in grouped_data.items():
-            if len(entries_at_target) < 3: # Not enough points to reliably detect outliers
+            if len(entries_at_target) < 3:
                 filtered_calibration_data.extend(entries_at_target)
                 print(f"Target {target_px}: Kept {len(entries_at_target)} points (too few to filter).")
                 continue
@@ -91,7 +97,7 @@ class GazeToScreenModel:
                 else:
                     print(f"Warning: Invalid raw_gaze_camera_px for entry at target {target_px}, original_index {entry.get('_original_index')}. Skipping for local outlier check.")
 
-            if len(valid_entries_for_target) < 3: # Re-check after validating raw_gaze_camera_px
+            if len(valid_entries_for_target) < 3:
                 filtered_calibration_data.extend(valid_entries_for_target)
                 print(f"Target {target_px}: Kept {len(valid_entries_for_target)} valid points (too few to filter after raw_gaze validation).")
                 continue
@@ -103,10 +109,8 @@ class GazeToScreenModel:
             mean_distance = np.mean(distances)
             std_distance = np.std(distances)
             
-            # If std_distance is very small (e.g., all points are very close), avoid aggressive filtering
-            # This threshold can be adjusted. A std_dev of 0.1 pixels means points are extremely close.
             MIN_STD_DEV_FOR_FILTERING = 0.1 
-            z_score_threshold = 2.5 # Adjusted from 2.0 to 2.5
+            z_score_threshold = 2.5 
             
             kept_entries_for_target = []
             removed_count = 0
@@ -115,7 +119,7 @@ class GazeToScreenModel:
                 print(f"Target {target_px}: Kept all {len(valid_entries_for_target)} points (std dev of distances {std_distance:.4f} < {MIN_STD_DEV_FOR_FILTERING}).")
             else:
                 for i, entry in enumerate(valid_entries_for_target):
-                    z_score = (distances[i] - mean_distance) / std_distance if std_distance > 1e-9 else 0 # Avoid division by zero
+                    z_score = (distances[i] - mean_distance) / std_distance if std_distance > 1e-9 else 0
                     if abs(z_score) <= z_score_threshold:
                         kept_entries_for_target.append(entry)
                     else:
@@ -125,7 +129,6 @@ class GazeToScreenModel:
 
             filtered_calibration_data.extend(kept_entries_for_target)
         
-        # The rest of the training proceeds with 'filtered_calibration_data'
         calibration_data = filtered_calibration_data 
         if not calibration_data:
             print("Error: No valid data remaining after local outlier filtering.")
@@ -140,12 +143,10 @@ class GazeToScreenModel:
 
         valid_entries = 0
 
-        # Helper to check list of numbers for structure, type, and NaN/Inf
         def _validate_list_of_numbers(data, expected_len, name_for_error):
             if not (isinstance(data, list) and len(data) == expected_len and
                     all(isinstance(v, (int, float)) for v in data)):
                 return False, None, f"Invalid structure/type for {name_for_error}: {data}"
-            # Check for NaN or Inf after ensuring they are numbers
             if any(np.isnan(v) or np.isinf(v) for v in data):
                 return False, None, f"Invalid numeric value (NaN/Inf) in {name_for_error}: {data}"
             return True, data, None
@@ -154,24 +155,23 @@ class GazeToScreenModel:
             is_entry_valid = True
             error_messages = []
             
-            # Validate all required fields
             valid_struct, raw_gaze_val, err_msg = _validate_list_of_numbers(entry.get("raw_gaze_camera_px"), 2, "raw_gaze_camera_px")
             if not valid_struct: is_entry_valid = False; error_messages.append(err_msg)
 
             pupil_coord_data = entry.get("normalized_pupil_coord_xy")
-            if pupil_coord_data is None: # Try old key if new one isn't found
+            if pupil_coord_data is None:
                 pupil_coord_data = entry.get("avg_normalized_pupil_coord_xy")
             valid_struct, pupil_coord_val, err_msg = _validate_list_of_numbers(pupil_coord_data, 2, "normalized_pupil_coord_xy or avg_normalized_pupil_coord_xy")
             if not valid_struct: is_entry_valid = False; error_messages.append(err_msg)
 
             rvec_data = entry.get("head_pose_rvec")
-            if rvec_data is None: # Try old key
+            if rvec_data is None:
                 rvec_data = entry.get("avg_head_pose_rvec")
             valid_struct, rvec_val, err_msg = _validate_list_of_numbers(rvec_data, 3, "head_pose_rvec or avg_head_pose_rvec")
             if not valid_struct: is_entry_valid = False; error_messages.append(err_msg)
 
             tvec_data = entry.get("head_pose_tvec")
-            if tvec_data is None: # Try old key
+            if tvec_data is None:
                 tvec_data = entry.get("avg_head_pose_tvec")
             valid_struct, tvec_val, err_msg = _validate_list_of_numbers(tvec_data, 3, "head_pose_tvec or avg_head_pose_tvec")
             if not valid_struct: is_entry_valid = False; error_messages.append(err_msg)
@@ -189,10 +189,8 @@ class GazeToScreenModel:
             else:
                 print(f"Skipping entry #{entry_idx} due to: {'; '.join(error_messages)}. Entry data: {entry}")
 
-        # For PolynomialFeatures(degree=2, include_bias=False) with 10 input features,
-        # the number of output polynomial features is 65.
         n_poly_features = 65 
-        min_samples_needed = n_poly_features + 1 # For Ridge regression
+        min_samples_needed = n_poly_features + 1 
 
         if valid_entries < min_samples_needed:
             print(f"Error: Not enough valid data points ({valid_entries}) after filtering. "
@@ -206,7 +204,6 @@ class GazeToScreenModel:
         rvec_points = np.array(head_rvecs_list, dtype=float)
         tvec_points = np.array(head_tvecs_list, dtype=float)
 
-        # Final check for NaNs/Infs in the numpy arrays
         feature_arrays_map = {
             "gaze_points": gaze_points, "pupil_points": pupil_points,
             "rvec_points": rvec_points, "tvec_points": tvec_points
@@ -220,10 +217,14 @@ class GazeToScreenModel:
         all_features = np.concatenate((gaze_points, pupil_points, rvec_points, tvec_points), axis=1)
         self._expected_feature_count = all_features.shape[1]
 
-        gaze_X_features = all_features
+        # Re-initialize the scaler for training to ensure it's fresh and avoids issues with partially loaded states
+        self.scaler = StandardScaler()
+        scaled_features = self.scaler.fit_transform(all_features)
+
+        gaze_X_features = scaled_features
         screen_X_target = screen_points[:, 0]
         
-        gaze_Y_features = all_features
+        gaze_Y_features = scaled_features
         screen_Y_target = screen_points[:, 1]
 
         try:
@@ -233,7 +234,6 @@ class GazeToScreenModel:
             gaze_Y_poly = self.poly_features_y.fit_transform(gaze_Y_features)
             self.model_y.fit(gaze_Y_poly, screen_Y_target)
             
-            # Report training error
             screen_X_pred = self.model_x.predict(gaze_X_poly)
             screen_Y_pred = self.model_y.predict(gaze_Y_poly)
             
@@ -313,10 +313,16 @@ class GazeToScreenModel:
                 screen_y = int(max(0, min(screen_y, self.screen_height - 1)))
                 return (screen_x, screen_y)
 
-            features_poly_x = self.poly_features_x.transform(current_features)
+            if hasattr(self.scaler, 'mean_') and self.scaler.mean_ is not None:
+                scaled_current_features = self.scaler.transform(current_features)
+            else:
+                print("Warning: Scaler not fitted during prediction. Using unscaled features.")
+                scaled_current_features = current_features
+
+            features_poly_x = self.poly_features_x.transform(scaled_current_features)
             screen_x = self.model_x.predict(features_poly_x)[0]
             
-            features_poly_y = self.poly_features_y.transform(current_features)
+            features_poly_y = self.poly_features_y.transform(scaled_current_features)
             screen_y = self.model_y.predict(features_poly_y)[0]
 
         except Exception as e:
@@ -340,21 +346,25 @@ class GazeToScreenModel:
         try:
             model_data = {
                 'poly_features_x_params': self.poly_features_x.get_params(),
-                'model_x_coef': self.model_x.coef_,
-                'model_x_intercept': self.model_x.intercept_,
+                'model_x_object': self.model_x,
+
                 'poly_features_y_params': self.poly_features_y.get_params(),
-                'model_y_coef': self.model_y.coef_,
-                'model_y_intercept': self.model_y.intercept_,
+                'model_y_object': self.model_y,
+
                 'screen_width': self.screen_width,
                 'screen_height': self.screen_height,
                 'camera_width': self.camera_width,
                 'camera_height': self.camera_height,
-                'is_trained': self.is_trained
+                'is_trained': self.is_trained,
+                'scaler_mean': self.scaler.mean_ if hasattr(self.scaler, 'mean_') else None,
+                'scaler_scale': self.scaler.scale_ if hasattr(self.scaler, 'scale_') else None,
+                'scaler_n_features_in': self.scaler.n_features_in_ if hasattr(self.scaler, 'n_features_in_') else None,
+                'scaler_n_samples_seen': self.scaler.n_samples_seen_ if hasattr(self.scaler, 'n_samples_seen_') else None,
             }
             if hasattr(self.poly_features_x, 'n_features_in_'):
-                 model_data['poly_features_x_n_features_in'] = self.poly_features_x.n_features_in_
+                model_data['poly_features_x_n_features_in'] = self.poly_features_x.n_features_in_
             if hasattr(self.poly_features_y, 'n_features_in_'):
-                 model_data['poly_features_y_n_features_in'] = self.poly_features_y.n_features_in_
+                model_data['poly_features_y_n_features_in'] = self.poly_features_y.n_features_in_
             if hasattr(self, '_expected_feature_count'):
                 model_data['_expected_feature_count'] = self._expected_feature_count
 
@@ -365,84 +375,162 @@ class GazeToScreenModel:
 
     def load_model(self, filepath):
         """Loads a trained model from a file."""
+        print(f"Debug: Attempting to load model from {filepath}") # Added
         try:
             if not os.path.exists(filepath):
+                print(f"Debug: File not found at {filepath}") # Added
                 return False
                 
             model_data = joblib.load(filepath)
-            
-            self.poly_features_x = PolynomialFeatures(**model_data['poly_features_x_params'])
-            if 'poly_features_x_n_features_in' in model_data and model_data['poly_features_x_n_features_in'] is not None:
-                self.poly_features_x.n_features_in_ = model_data['poly_features_x_n_features_in']
-                dummy_input_x = np.zeros((1, self.poly_features_x.n_features_in_))
-                self.poly_features_x.fit(dummy_input_x)
-            elif '_expected_feature_count' in model_data and model_data['_expected_feature_count'] > 0:
-                 print("Warning: 'poly_features_x_n_features_in' not in model, using '_expected_feature_count'.")
-                 self.poly_features_x.n_features_in_ = model_data['_expected_feature_count']
-                 dummy_input_x = np.zeros((1, self.poly_features_x.n_features_in_))
-                 self.poly_features_x.fit(dummy_input_x)
-            else:
-                print("Warning: 'poly_features_x_n_features_in' not found in loaded model. Model may not transform features correctly.")
+            print(f"Debug: Successfully loaded data from {filepath}") # Added
 
-            self.model_x = Ridge(alpha=1.0)
-            self.model_x.coef_ = model_data['model_x_coef']
-            self.model_x.intercept_ = model_data['model_x_intercept']
-            if hasattr(self.model_x, 'coef_') and self.model_x.coef_ is not None:
-                 self.model_x.n_features_in_ = self.model_x.coef_.shape[0]
-
-            self.poly_features_y = PolynomialFeatures(**model_data['poly_features_y_params'])
-            if 'poly_features_y_n_features_in' in model_data and model_data['poly_features_y_n_features_in'] is not None:
-                self.poly_features_y.n_features_in_ = model_data['poly_features_y_n_features_in']
-                dummy_input_y = np.zeros((1, self.poly_features_y.n_features_in_))
-                self.poly_features_y.fit(dummy_input_y)
-            elif '_expected_feature_count' in model_data and model_data['_expected_feature_count'] > 0:
-                 print("Warning: 'poly_features_y_n_features_in' not in model, using '_expected_feature_count'.")
-                 self.poly_features_y.n_features_in_ = model_data['_expected_feature_count']
-                 dummy_input_y = np.zeros((1, self.poly_features_y.n_features_in_))
-                 self.poly_features_y.fit(dummy_input_y)
-            else:
-                print("Warning: 'poly_features_y_n_features_in' not found in loaded model. Model may not transform features correctly.")
-
-            self.model_y = Ridge(alpha=1.0)
-            self.model_y.coef_ = model_data['model_y_coef']
-            self.model_y.intercept_ = model_data['model_y_intercept']
-            if hasattr(self.model_y, 'coef_') and self.model_y.coef_ is not None:
-                 self.model_y.n_features_in_ = self.model_y.coef_.shape[0]
-            
-            self.is_trained = model_data.get('is_trained', False)
+            self.screen_width = model_data.get('screen_width', self.screen_width)
+            self.screen_height = model_data.get('screen_height', self.screen_height)
+            self.camera_width = model_data.get('camera_width', self.camera_width)
+            self.camera_height = model_data.get('camera_height', self.camera_height)
             self._expected_feature_count = model_data.get('_expected_feature_count', -1)
-            
-            if self.is_trained and hasattr(self.model_x, 'coef_') and hasattr(self.model_y, 'coef_'):
-                try:
-                    if hasattr(self.poly_features_x, 'n_features_in_') and self.poly_features_x.n_features_in_ > 0 and \
-                       hasattr(self.poly_features_y, 'n_features_in_') and self.poly_features_y.n_features_in_ > 0:
-                         dummy_check_input_size = self._expected_feature_count if self._expected_feature_count > 0 else \
-                                                  (self.poly_features_x.n_features_in_ if hasattr(self.poly_features_x, 'n_features_in_') and self.poly_features_x.n_features_in_ > 0 else 10)
-                         if dummy_check_input_size <= 0:
-                             print(f"Warning: Could not determine input feature size for poly transform check. Assuming 10.")
-                             dummy_check_input_size = 10
+            print(f"Debug: _expected_feature_count loaded as: {self._expected_feature_count}") # Added
 
-                         dummy_check_input = np.zeros((1, dummy_check_input_size))
-                         self.poly_features_x.transform(dummy_check_input)
-                         self.poly_features_y.transform(dummy_check_input)
-                         print(f"Model successfully loaded from {filepath}. Expected feature count: {self._expected_feature_count}")
-                         return True
-                    else:
-                        print(f"Model loaded from {filepath}, but polynomial features seem not properly initialized. n_features_in_ for poly_x: {getattr(self.poly_features_x, 'n_features_in_', 'N/A')}, poly_y: {getattr(self.poly_features_y, 'n_features_in_', 'N/A')}")
-                        self.is_trained = False
-                        return False
-                except Exception as e_poly:
-                    print(f"Model loaded, but polynomial features transform failed: {e_poly}")
-                    self.is_trained = False
-                    return False
+            if model_data.get('scaler_mean') is not None and model_data.get('scaler_scale') is not None:
+                self.scaler = StandardScaler()
+                self.scaler.mean_ = model_data['scaler_mean']
+                self.scaler.scale_ = model_data['scaler_scale']
+                if 'scaler_n_features_in' in model_data: self.scaler.n_features_in_ = model_data['scaler_n_features_in']
+                if 'scaler_n_samples_seen' in model_data: self.scaler.n_samples_seen_ = model_data['scaler_n_samples_seen']
+                print(f"Debug: Scaler loaded with mean: {self.scaler.mean_ is not None}, scale: {self.scaler.scale_ is not None}") # Added
+                print(f"Debug: Scaler n_features_in_: {getattr(self.scaler, 'n_features_in_', 'N/A')}, n_samples_seen_: {getattr(self.scaler, 'n_samples_seen_', 'N/A')}") # Added
             else:
-                print(f"Model loaded from {filepath}, but seems incomplete or marked as not trained.")
-                self.is_trained = False
-                return False
+                self.scaler = StandardScaler()
+                print("Debug: Scaler re-initialized (no mean/scale in model_data)") # Added
 
-        except Exception as e:
-            print(f"Error loading model from {filepath}: {e}")
+            poly_x_params = model_data.get('poly_features_x_params', {'degree': 2, 'include_bias': False})
+            self.poly_features_x = PolynomialFeatures(**poly_x_params)
+            n_features_in_x = model_data.get('poly_features_x_n_features_in')
+            if n_features_in_x is None and self._expected_feature_count > 0:
+                n_features_in_x = self._expected_feature_count
+            print(f"Debug: poly_features_x - n_features_in_ to be used: {n_features_in_x}") # Added
+            
+            if n_features_in_x is not None and n_features_in_x > 0:
+                self.poly_features_x.n_features_in_ = n_features_in_x
+                try:
+                    # Fit with dummy data to set internal states if necessary
+                    self.poly_features_x.fit(np.zeros((1, n_features_in_x)))
+                    print(f"Debug: poly_features_x fitted with n_features_in_={n_features_in_x}") # Added
+                except Exception as e_fit_poly_x:
+                    print(f"Warning Detail: Could not fit poly_features_x with n_features_in_={n_features_in_x}: {e_fit_poly_x}")
+
+            poly_y_params = model_data.get('poly_features_y_params', {'degree': 2, 'include_bias': False})
+            self.poly_features_y = PolynomialFeatures(**poly_y_params)
+            n_features_in_y = model_data.get('poly_features_y_n_features_in')
+            if n_features_in_y is None and self._expected_feature_count > 0:
+                n_features_in_y = self._expected_feature_count
+            print(f"Debug: poly_features_y - n_features_in_ to be used: {n_features_in_y}") # Added
+
+            if n_features_in_y is not None and n_features_in_y > 0:
+                self.poly_features_y.n_features_in_ = n_features_in_y
+                try:
+                    # Fit with dummy data to set internal states if necessary
+                    self.poly_features_y.fit(np.zeros((1, n_features_in_y)))
+                    print(f"Debug: poly_features_y fitted with n_features_in_={n_features_in_y}") # Added
+                except Exception as e_fit_poly_y:
+                    print(f"Warning Detail: Could not fit poly_features_y with n_features_in_={n_features_in_y}: {e_fit_poly_y}")
+
+            if 'model_x_object' in model_data and 'model_y_object' in model_data:
+                self.model_x = model_data['model_x_object']
+                self.model_y = model_data['model_y_object']
+                print(f"Debug: model_x type: {type(self.model_x)}, model_y type: {type(self.model_y)}") # Added
+
+                core_model_objects_structurally_ok = isinstance(self.model_x, BaggingRegressor) and isinstance(self.model_y, BaggingRegressor)
+                if not core_model_objects_structurally_ok:
+                    print("Warning Detail: model_x or model_y are not BaggingRegressors prior to is_trained check. This implies a load issue not caught by earlier print.")
+
+                loaded_is_trained_from_file = model_data.get('is_trained', False)
+                print(f"Debug: 'is_trained' from file: {loaded_is_trained_from_file}")
+
+                if core_model_objects_structurally_ok and loaded_is_trained_from_file:
+                    self.is_trained = True
+                    print(f"Debug: Preliminary self.is_trained status (set to True for detailed checks): {self.is_trained}")
+                else:
+                    self.is_trained = False
+                    print(f"Debug: Preliminary self.is_trained status (models not ok or file says not trained, skipping detailed checks): {self.is_trained}")
+
+                if self.is_trained:
+                    model_x_ok = hasattr(self.model_x, 'estimators_') and len(self.model_x.estimators_) > 0
+                    model_y_ok = hasattr(self.model_y, 'estimators_') and len(self.model_y.estimators_) > 0
+                    print(f"Debug: model_x_ok: {model_x_ok} (estimators: {len(getattr(self.model_x, 'estimators_', []))})") # Added
+                    print(f"Debug: model_y_ok: {model_y_ok} (estimators: {len(getattr(self.model_y, 'estimators_', []))})") # Added
+
+                    poly_x_fitted = hasattr(self.poly_features_x, 'n_features_in_') and self.poly_features_x.n_features_in_ > 0
+                    poly_y_fitted = hasattr(self.poly_features_y, 'n_features_in_') and self.poly_features_y.n_features_in_ > 0
+                    print(f"Debug: poly_x_fitted: {poly_x_fitted} (n_features_in_: {getattr(self.poly_features_x, 'n_features_in_', 'N/A')})") # Added
+                    print(f"Debug: poly_y_fitted: {poly_y_fitted} (n_features_in_: {getattr(self.poly_features_y, 'n_features_in_', 'N/A')})") # Added
+                    expected_feature_count_ok = self._expected_feature_count > 0
+                    print(f"Debug: _expected_feature_count > 0: {expected_feature_count_ok}") # Added
+
+                    if not (model_x_ok and model_y_ok and poly_x_fitted and poly_y_fitted and expected_feature_count_ok):
+                        print(f"Warning Detail: Model file at {filepath} marked as trained, but components are inconsistent or not properly loaded/fitted. Treating as untrained.")
+                        print(f"Warning Detail: Breakdown - model_x_ok: {model_x_ok}, model_y_ok: {model_y_ok}, poly_x_fitted: {poly_x_fitted}, poly_y_fitted: {poly_y_fitted}, expected_feature_count_ok: {expected_feature_count_ok}") # Added
+                        self.is_trained = False
+                    else:
+                        try:
+                            dummy_input = np.zeros((1, self._expected_feature_count))
+                            print(f"Debug: Validating with dummy_input shape: {dummy_input.shape}") # Added
+
+                            if hasattr(self.scaler, 'mean_') and self.scaler.mean_ is not None:
+                                if hasattr(self.scaler, 'n_features_in_') and self.scaler.n_features_in_ == self._expected_feature_count:
+                                    self.scaler.transform(dummy_input)
+                                    print("Debug: scaler.transform(dummy_input) successful.") # Added
+                                else:
+                                    print(f"Warning Detail: Scaler n_features_in_ ({getattr(self.scaler, 'n_features_in_', 'N/A')}) mismatch with _expected_feature_count ({self._expected_feature_count}). Scaler transform check skipped.")
+                            else:
+                                print("Debug: Scaler not fitted (no mean_), transform check skipped.") # Added
+
+                            self.poly_features_x.transform(dummy_input)
+                            print("Debug: poly_features_x.transform(dummy_input) successful.") # Added
+                            self.poly_features_y.transform(dummy_input)
+                            print("Debug: poly_features_y.transform(dummy_input) successful.") # Added
+                            print("Debug: All validation checks passed for trained model.") # Added
+
+                        except Exception as e_val:
+                            print(f"Warning Detail: Error validating loaded trained model components (transform failed): {e_val}. Treating as untrained.")
+                            self.is_trained = False
+
+                    print(f"Debug: Final self.is_trained status after all checks: {self.is_trained}") # Added
+                    return True
+
+            else:
+                print("Warning Detail: Saved model objects ('model_x_object', 'model_y_object') not found. This model file is incompatible or incomplete. Model will be treated as untrained.")
+                self.model_x = BaggingRegressor(estimator=Ridge(alpha=1.0), n_estimators=10, random_state=42)
+                self.model_y = BaggingRegressor(estimator=Ridge(alpha=1.0), n_estimators=10, random_state=42)
+                self.is_trained = False
+
+            return True
+
+        except FileNotFoundError:
+            print(f"Debug: FileNotFoundError caught for {filepath}") # Added
             self.is_trained = False
+            return False 
+        except Exception as e:
+            print(f"General error loading model from {filepath}: {e}. Model will be re-initialized as untrained.")
+            import traceback
+            traceback.print_exc()
+            current_screen_width = self.screen_width
+            current_screen_height = self.screen_height
+            current_camera_width = self.camera_width
+            current_camera_height = self.camera_height
+
+            self.screen_width = current_screen_width
+            self.screen_height = current_screen_height
+            self.camera_width = current_camera_width
+            self.camera_height = current_camera_height
+            self.scaler = StandardScaler()
+            self.poly_features_x = PolynomialFeatures(degree=2, include_bias=False)
+            self.model_x = BaggingRegressor(estimator=Ridge(alpha=1.0), n_estimators=10, random_state=42)
+            self.poly_features_y = PolynomialFeatures(degree=2, include_bias=False)
+            self.model_y = BaggingRegressor(estimator=Ridge(alpha=1.0), n_estimators=10, random_state=42)
+            self.is_trained = False
+            self.model_path = self._original_model_path_for_reinit # Use stored original path for re-init
+            self._expected_feature_count = -1
             return False
 
 if __name__ == "__main__":
@@ -451,25 +539,23 @@ if __name__ == "__main__":
     CAMERA_WIDTH = 640
     CAMERA_HEIGHT = 480
     
-    # Construct path to calibration file relative to this script's location
     script_dir = os.path.dirname(os.path.abspath(__file__))
     calibration_file_path = os.path.join(script_dir, "..", "data", "training", "training-data-0336.json")
-    calibration_file_path = os.path.normpath(calibration_file_path) # Normalize path (e.g., removes "..")
+    calibration_file_path = os.path.normpath(calibration_file_path)
     
-    # Check if the calibration file exists before proceeding
+    # Construct the default full model path for __main__
+    default_model_path = os.path.normpath(os.path.join(script_dir, GazeToScreenModel.MODEL_FILENAME))
+
     if not os.path.exists(calibration_file_path):
-        # calibration_file_path is now absolute, so os.path.abspath() is not needed here
         print(f"Error: Calibration data file not found at {calibration_file_path}")
         print("Please ensure the file exists and the path is correct.")
-        # The rest of the original error handling logic (dummy file creation) can remain if desired,
-        # but the primary goal here is to fix the path resolution.
     
     model = GazeToScreenModel(
         screen_width=SCREEN_WIDTH, 
         screen_height=SCREEN_HEIGHT,
         camera_width=CAMERA_WIDTH,
         camera_height=CAMERA_HEIGHT,
-        model_dir="." # Saves gaze_model.joblib in the current directory (evaluation/)
+        model_path=default_model_path # Pass the full model path
     )
 
     print(f"\n--- Training Model using {calibration_file_path} ---")
@@ -500,16 +586,13 @@ if __name__ == "__main__":
         print(f"Model training with {calibration_file_path} was not successful. Skipping prediction test.")
 
     print("\n--- Testing Model Loading ---")
-    # Define a unique model filename for this test run to avoid conflicts if needed
-    # For now, using the default MODEL_FILENAME which will be in the execution directory (evaluation/)
-    # The model_path for loading will be './gaze_model.joblib' if run from evaluation/
     
     model_loaded = GazeToScreenModel(
         screen_width=SCREEN_WIDTH, 
         screen_height=SCREEN_HEIGHT,
         camera_width=CAMERA_WIDTH,
         camera_height=CAMERA_HEIGHT,
-        model_dir="." # Expects gaze_model.joblib in the current directory (evaluation/)
+        model_path=default_model_path # Pass the full model path
     )
     if model_loaded.is_trained:
         print("Loaded model is trained. Testing prediction:")
@@ -527,10 +610,6 @@ if __name__ == "__main__":
     else:
         print("Loaded model is NOT trained or failed to load properly (this is expected if training failed or no model was saved).")
 
-    # Clean up the model file created by this script run
-    # model.model_path is os.path.join(model_dir, MODEL_FILENAME)
-    # model_dir is "." so model_path is "./gaze_model.joblib"
-    if os.path.exists(model.model_path):
+    if os.path.exists(model.model_path): # model.model_path should be correct now
         print(f"Removing model file: {model.model_path}")
         os.remove(model.model_path)
-    # No dummy_calibration_file to remove in this version

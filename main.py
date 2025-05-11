@@ -37,13 +37,13 @@ def main_realtime_gaze_mouse(retrain_model=False, training_file=DEFAULT_TRAINING
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
 
     # Initialize the GazeToScreenModel
-    # The model_dir for GazeToScreenModel should point to where gaze_model.joblib is expected or will be saved.
+    # The model_path for GazeToScreenModel should point to the full path of gaze_model.joblib.
     model = GazeToScreenModel(
         screen_width=SCREEN_WIDTH,
         screen_height=SCREEN_HEIGHT,
         camera_width=CAMERA_WIDTH,
         camera_height=CAMERA_HEIGHT,
-        model_dir=DEFAULT_MODEL_DIR # Pass the directory for model loading/saving
+        model_path=model_file_path # Pass the full model file path
     )
 
     if retrain_model:
@@ -204,7 +204,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Construct the model file path based on the directory GazeToScreenModel uses
-    # GazeToScreenModel uses its model_dir parameter to construct its internal model_path.
+    # GazeToScreenModel uses its model_path parameter to construct its internal model_path.
     # We ensure main.py is aware of this location for clarity if needed, but model handles its own path.
 
     main_realtime_gaze_mouse(retrain_model=args.retrain, training_file=args.training_file)

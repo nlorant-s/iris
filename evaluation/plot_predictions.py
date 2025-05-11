@@ -14,7 +14,7 @@ SCREEN_HEIGHT = 1080 # Your screen resolution
 CAMERA_WIDTH = 640   # Width of the camera frame used by the model
 CAMERA_HEIGHT = 480  # Height of the camera frame used by the model
 CALIBRATION_DATA_FILE = os.path.normpath(os.path.join(_SCRIPT_DIR, "..", "data", "training", "training-data-0336.json")) # Modified for robustness
-MODEL_FILE_PATH = os.path.normpath(os.path.join(_SCRIPT_DIR, "..", "gaze-model.joblib")) # Modified for robustness # Default path for the trained model
+MODEL_FILE_PATH = os.path.normpath(os.path.join(_SCRIPT_DIR, "gaze_model.joblib")) # Modified for robustness # Default path for the trained model
 
 def load_calibration_data(filepath):
     try:
@@ -181,13 +181,13 @@ def main():
         return
 
     # Initialize the GazeToScreenModel
-    # It will attempt to load a pre-trained model if MODEL_FILE_PATH exists
+    # It will attempt to load a pre-trained model if a model exists in model_dir
     gaze_model = GazeToScreenModel(
         screen_width=SCREEN_WIDTH,
         screen_height=SCREEN_HEIGHT,
         camera_width=CAMERA_WIDTH,
         camera_height=CAMERA_HEIGHT,
-        model_dir="." # Assuming model is in the current directory
+        model_path=MODEL_FILE_PATH # Pass the full path to the model, instead of just the directory
     )
 
     if not gaze_model.is_trained:

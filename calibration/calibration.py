@@ -54,8 +54,6 @@ def display_calibration_point(screen_image, point_x, point_y):
     color = (0, 0, 255)  # Red
     cv2.circle(screen_image, (point_x, point_y), radius, color, thickness)
     cv2.circle(screen_image, (point_x, point_y), radius + 5, (255,255,255), 2) # White outline
-    cv2.putText(screen_image, f"Look Here: ({point_x}, {point_y})", (point_x + 30, point_y - 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 2)
 
 def main_calibration_procedure():
     """Runs the main calibration loop."""
@@ -94,8 +92,6 @@ def main_calibration_procedure():
         # Create a black screen for calibration
         calibration_screen = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH, 3), dtype=np.uint8)
         display_calibration_point(calibration_screen, target_x, target_y)
-        cv2.putText(calibration_screen, "Focus on the dot. Press SPACE to begin capture for this point.", (50, 100),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
         cv2.imshow(calibration_window_name, calibration_screen)
         
         # Give user time to look at the point
@@ -115,8 +111,6 @@ def main_calibration_procedure():
         # Instruction to capture (now combined with waiting for space)
         capture_instruction_screen = calibration_screen.copy()
         radius = 20 # Keep radius consistent
-        cv2.putText(capture_instruction_screen, "Press SPACE to start capturing data for this point.", (50, 150),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
         cv2.imshow(calibration_window_name, capture_instruction_screen)
 
         # Wait for user to press space
@@ -140,8 +134,6 @@ def main_calibration_procedure():
         display_calibration_point(capturing_screen, target_x, target_y) # Show the point
         # Change dot to green to indicate capture is active
         cv2.circle(capturing_screen, (target_x, target_y), 20, (0, 255, 0), -1) 
-        cv2.putText(capturing_screen, "CAPTURING... Look at the dot and move your head naturally.", (50, 100),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
         cv2.imshow(calibration_window_name, capturing_screen)
         cv2.waitKey(1) # Ensure it displays
 
@@ -231,16 +223,10 @@ def main_calibration_procedure():
             # Display warning messages on the calibration screen
             # Add prominent warning if no face is detected for too long
             if no_face_consecutive_frames > MAX_CONSECUTIVE_NO_FACE_FRAMES:
-                cv2.putText(current_frame_display, "CRITICAL: NO FACE DETECTED!",
-                            (SCREEN_WIDTH // 2 - 350, SCREEN_HEIGHT // 2),
-                            cv2.FONT_HERSHEY_TRIPLEX, 1.2, (0, 0, 255), 3)
-                cv2.putText(current_frame_display, "Please check camera & your position.",
-                            (SCREEN_WIDTH // 2 - 350, SCREEN_HEIGHT // 2 + 50),
-                            cv2.FONT_HERSHEY_TRIPLEX, 0.8, (0, 0, 255), 2)
+                pass # Keep the warning logic but remove the text
 
             for idx, msg in enumerate(warning_messages):
-                cv2.putText(current_frame_display, msg, (10, 30 + idx * 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2) # Yellow text
+                pass # Keep the warning logic but remove the text
 
             cv2.imshow(calibration_window_name, current_frame_display) # Show warnings
             
@@ -260,8 +246,6 @@ def main_calibration_procedure():
         # Brief pause or message before next point
         inter_point_screen = np.zeros((SCREEN_HEIGHT, SCREEN_WIDTH, 3), dtype=np.uint8) # Fresh black screen
         display_calibration_point(inter_point_screen, target_x, target_y) # Show the point again briefly (red)
-        cv2.putText(inter_point_screen, "Next point soon...", (50, 50),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
         cv2.imshow(calibration_window_name, inter_point_screen)
         cv2.waitKey(1000) # Wait 1 second
 
