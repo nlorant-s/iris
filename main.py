@@ -16,7 +16,7 @@ CAMERA_HEIGHT = 480  # Height of the camera frame used by the model
 # --- File Paths ---
 # Get the directory of the current script (main.py)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_TRAINING_DATA_FILE = os.path.join(BASE_DIR, "data", "training", "training-data-0336.json")
+DEFAULT_TRAINING_DATA_FILE = os.path.join(BASE_DIR, "data", "training", "training-data-51125.json")
 DEFAULT_MODEL_DIR = os.path.join(BASE_DIR, "evaluation") # Model is saved/loaded from evaluation directory
 DEFAULT_MODEL_FILE = os.path.join(DEFAULT_MODEL_DIR, GazeToScreenModel.MODEL_FILENAME) # e.g., evaluation/gaze_model.joblib
 

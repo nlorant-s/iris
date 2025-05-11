@@ -40,7 +40,7 @@ CALIBRATION_POINTS_PERCENTAGES = [
 CALIBRATION_POINTS = [(int(p[0] * SCREEN_WIDTH), int(p[1] * SCREEN_HEIGHT)) for p in CALIBRATION_POINTS_PERCENTAGES]
 
 # Define the target training data file
-TARGET_TRAINING_FILE = os.path.normpath(os.path.join(current_dir, "..", "data", "training", "training-data-0336.json"))
+TARGET_TRAINING_FILE = os.path.normpath(os.path.join(current_dir, "..", "data", "training", "training-data-51125.json"))
 # OUTPUT_FILE = f"training-data-{datetime.now().strftime('%H%M')}.json" # Commented out, using fixed target file
 
 POINT_DISPLAY_TIME_SEC = 0.2  # Time to display each point before capture instruction

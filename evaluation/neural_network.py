@@ -189,23 +189,22 @@ class GazeToScreenModel:
             else:
                 print(f"Skipping entry #{entry_idx} due to: {'; '.join(error_messages)}. Entry data: {entry}")
 
-        n_poly_features = 65 
-        min_samples_needed = n_poly_features + 1 
+        n_poly_features = 44
+        min_samples_needed = n_poly_features + 1
 
         if valid_entries < min_samples_needed:
             print(f"Error: Not enough valid data points ({valid_entries}) after filtering. "
-                  f"Need at least {min_samples_needed} for the current model configuration (10 base features, degree 2 polynomial).")
+                  f"Need at least {min_samples_needed} for the current model configuration (8 base features, degree 2 polynomial).")
             self.is_trained = False
             return False
 
-        gaze_points = np.array(raw_gaze_coords, dtype=float)
         screen_points = np.array(target_screen_coords, dtype=float)
         pupil_points = np.array(pupil_coords_list, dtype=float)
         rvec_points = np.array(head_rvecs_list, dtype=float)
         tvec_points = np.array(head_tvecs_list, dtype=float)
 
         feature_arrays_map = {
-            "gaze_points": gaze_points, "pupil_points": pupil_points,
+            "pupil_points": pupil_points,
             "rvec_points": rvec_points, "tvec_points": tvec_points
         }
         for name, arr in feature_arrays_map.items():
@@ -214,7 +213,7 @@ class GazeToScreenModel:
                 self.is_trained = False
                 return False
         
-        all_features = np.concatenate((gaze_points, pupil_points, rvec_points, tvec_points), axis=1)
+        all_features = np.concatenate((pupil_points, rvec_points, tvec_points), axis=1)
         self._expected_feature_count = all_features.shape[1]
 
         # Re-initialize the scaler for training to ensure it's fresh and avoids issues with partially loaded states
@@ -269,7 +268,7 @@ class GazeToScreenModel:
         use_full_model = (self.is_trained and 
                           pupil_norm_x is not None and pupil_norm_y is not None and
                           rvec is not None and tvec is not None and
-                          self._expected_feature_count == 10)
+                          self._expected_feature_count == 8)
 
         if not use_full_model:
             warning_msg = "Warning: Model not trained, or missing new features (pupil, head pose), "
@@ -297,8 +296,7 @@ class GazeToScreenModel:
             if rvec_flat.shape[0] != 3 or tvec_flat.shape[0] != 3:
                 raise ValueError("rvec and tvec must have 3 elements each.")
 
-            current_features = np.array([[gaze_x, gaze_y, 
-                                          pupil_norm_x, pupil_norm_y, 
+            current_features = np.array([[pupil_norm_x, pupil_norm_y, 
                                           rvec_flat[0], rvec_flat[1], rvec_flat[2],
                                           tvec_flat[0], tvec_flat[1], tvec_flat[2]]])
             
